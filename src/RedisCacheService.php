@@ -356,4 +356,41 @@ class RedisCacheService implements CacheServiceInterface
 
         return $this;
     }
+
+    public function addToSet(string $key, mixed $value): self
+    {
+        $this->reconnect();
+        $redis = $this->getRedis();
+        $redis->sAdd($key, $value);
+        return $this;
+    }
+
+    public function removeFromSet(string $key, mixed $value): self
+    {
+        $this->reconnect();
+        $redis = $this->getRedis();
+        $redis->sRem($key, $value);
+        return $this;
+    }
+
+    public function getSet(string $key): ?array
+    {
+        $this->reconnect();
+        $redis = $this->getRedis();
+        $members = $redis->sMembers($key);
+        if ($members === false) {
+            return null;
+        }
+
+        return $members;
+    }
+
+    public function createSet(string $key, array $values): self
+    {
+        $this->reconnect();
+        $redis = $this->getRedis();
+        $redis->del($key); // delete existing set if any
+        $redis->sAddArray($key, $values);
+        return $this;
+    }
 }
