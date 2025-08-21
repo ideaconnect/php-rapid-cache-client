@@ -17,7 +17,7 @@ class RedisCacheService implements CacheServiceInterface
 
     private const TAGS_SET_NAME_PREFIX = 'TAGS:';
 
-    /** @var */
+    /** @var Redis|null */
     private $redis;
 
     public function __construct(
@@ -30,21 +30,22 @@ class RedisCacheService implements CacheServiceInterface
 
     protected function reconnect()
     {
-        if (false === $this->getRedis() || null === $this->getRedis() || $this->getRedis()->isConnected() !== true) {
-            $redis = new Redis();
-            $redis->connect($this->host, $this->port);
-            if ($this->prefix) {
-                $redis->setOption(Redis::OPT_PREFIX, $this->prefix);
-            }
-            $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY);
-            $this->redis = $redis;
+        $redis = new Redis();
+        $redis->connect($this->host, $this->port);
+        if ($this->prefix) {
+            $redis->setOption(Redis::OPT_PREFIX, $this->prefix);
         }
+        $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY);
+        $this->redis = $redis;
 
         return $this;
     }
 
-    protected function getRedis() : ?Redis
+    protected function getRedis() : Redis
     {
+        if ($this->redis === null || !$this->redis->isConnected()) {
+            $this->reconnect();
+        }
         return $this->redis;
     }
 
@@ -53,30 +54,30 @@ class RedisCacheService implements CacheServiceInterface
      */
     public function getTagged(string $tag): Generator
     {
-        $this->reconnect();
         $redis = $this->getRedis();
-        $members = $redis->sMembers($tag);
+        $tagHash = 'TAG:' . $tag;
+        $members = $redis->hGetAll($tagHash);
+
         if (empty($members)) {
             yield from [];
-
             return;
         }
 
         $anyResults = false;
 
-        foreach ($members as $member) {
-            $memberValue = $this->get($member);
-            if ($memberValue) {
+        foreach ($members as $member => $cachedValue) {
+            // Check if the original key still exists (handles TTL expiration)
+            if ($redis->exists($member)) {
                 $anyResults = true;
-                yield $member => $memberValue;
+                yield $member => $cachedValue;
             } else {
-                $this->delete($member); // fix for expired (TTL) elements which are still in the
+                // Remove expired key from tag hash
+                $redis->hDel($tagHash, $member);
             }
         }
 
         if (!$anyResults) {
             yield from [];
-
             return;
         }
     }
@@ -86,7 +87,6 @@ class RedisCacheService implements CacheServiceInterface
      */
     public function get(string $key): mixed
     {
-        $this->reconnect();
         $redis = $this->getRedis();
         $value = $redis->get($key);
 
@@ -102,41 +102,44 @@ class RedisCacheService implements CacheServiceInterface
      */
     public function delete(string $key, bool $skipTagsRemoval = false): self
     {
-        $this->reconnect();
+        $redis = $this->getRedis();
 
         if ($skipTagsRemoval !== true) {
-            $this->untagKeyFromAllTags($key);
+            $this->removeKeyFromTagHashes($key);
         }
 
-        $redis = $this->getRedis();
         $redis->del($key);
 
         return $this;
     }
 
-    private function untagKeyFromAllTags(string $key): self
+    private function removeKeyFromTagHashes(string $key): self
     {
-        $this->reconnect();
-        $tags = $this->getTagged(self::TAGS_SET_NAME_PREFIX.$key);
+        $redis = $this->getRedis();
+        $reverseLookupKey = self::TAGS_SET_NAME_PREFIX . $key;
+        $tags = $redis->sMembers($reverseLookupKey);
+
         foreach ($tags as $tag) {
-            $this->untag($key, $tag);
+            $tagHash = 'TAG:' . $tag;
+            $redis->hDel($tagHash, $key);
         }
+
+        // Clean up the reverse lookup set
+        $redis->del($reverseLookupKey);
 
         return $this;
     }
 
     public function untag(string $key, string $tag): self
     {
-        $this->reconnect();
         $redis = $this->getRedis();
-        $type = $redis->type($tag);
-        if ($type === Redis::REDIS_ZSET) {
-            $redis->zRem($tag, $key);
-        } else {
-            $redis->sRem($tag, $key);
-        }
+        $tagHash = 'TAG:' . $tag;
 
-        $redis->sRem( self::TAGS_SET_NAME_PREFIX.$key, $tag);
+        // Remove from tag hash
+        $redis->hDel($tagHash, $key);
+
+        // Remove from reverse lookup set
+        $redis->sRem(self::TAGS_SET_NAME_PREFIX . $key, $tag);
 
         return $this;
     }
@@ -152,7 +155,6 @@ class RedisCacheService implements CacheServiceInterface
             throw new InvalidArgumentException('Can\'t set null item');
         }
 
-        $this->reconnect();
         $redis = $this->getRedis();
 
         if (null !== $ttl) {
@@ -173,12 +175,12 @@ class RedisCacheService implements CacheServiceInterface
         }
 
         if ($tag) {
-            if ($score !== null) {
-                $redis->zAdd($tag, $score, $key);
-            } else {
-                $redis->sAdd($tag, $key);
-            }
+            $tagHash = 'TAG:' . $tag;
 
+            // Store the value in the tag hash for quick retrieval
+            $redis->hSet($tagHash, $key, $value);
+
+            // Keep reverse lookup for cleanup purposes
             $redis->sAdd(self::TAGS_SET_NAME_PREFIX.$key, $tag);
         }
 
@@ -190,7 +192,6 @@ class RedisCacheService implements CacheServiceInterface
      */
     public function clear(): self
     {
-        $this->reconnect();
         $redis = $this->getRedis();
         $redis->flushAll();
 
@@ -208,7 +209,6 @@ class RedisCacheService implements CacheServiceInterface
             throw new InvalidArgumentException('Can\'t enqueue null item');
         }
 
-        $this->reconnect();
         $redis = $this->getRedis();
         $redis->rPush($queue, $value);
         return $this;
@@ -219,7 +219,6 @@ class RedisCacheService implements CacheServiceInterface
      */
     public function pop(string $queue, int $range = 1): mixed
     {
-        $this->reconnect();
         $redis = $this->getRedis();
         if ($range !== 1) {
             return $redis->lRange($queue, 0, $range);
@@ -236,20 +235,20 @@ class RedisCacheService implements CacheServiceInterface
      */
     public function tag(string $key, string $tag, ?int $score = null): self
     {
-        if (null === $this->get($key)) {
+        $value = $this->get($key);
+        if (null === $value) {
             throw new InvalidArgumentException(sprintf('Can\'t tag non-existing key "%s"', $key));
         }
 
-        $this->reconnect();
         $redis = $this->getRedis();
+        $tagHash = 'TAG:' . $tag;
 
-        if ($score !== null) {
-            $redis->zAdd($tag, $score, $key);
-        } else {
-            $redis->sAdd($tag, $key);
-        }
+        // Store the value in the tag hash
+        $redis->hSet($tagHash, $key, $value);
 
+        // Keep reverse lookup for cleanup purposes
         $redis->sAdd(self::TAGS_SET_NAME_PREFIX.$key, $tag);
+
         return $this;
     }
 
@@ -258,20 +257,30 @@ class RedisCacheService implements CacheServiceInterface
      */
     public function clearByTag(string $tag): CacheServiceInterface
     {
-        $this->reconnect();
         $redis = $this->getRedis();
-        $members = $redis->sMembers($tag);
+        $tagHash = 'TAG:' . $tag;
+        $members = $redis->hKeys($tagHash);
+
         foreach ($members as $member) {
             $this->delete($member);
         }
+
+        // Clean up the tag hash
+        $redis->del($tagHash);
 
         return $this;
     }
 
     public function getCardinality(string $set, bool $sortedSet = false): int
     {
-        $this->reconnect();
         $redis = $this->getRedis();
+
+        // For tagged sets (prefixed with TAG:), use the hash length
+        if (str_starts_with($set, 'TAG:')) {
+            return intval($redis->hLen($set));
+        }
+
+        // For other sets, use the original logic
         if ($sortedSet) {
             return intval($redis->zCard($set));
         }
@@ -281,7 +290,6 @@ class RedisCacheService implements CacheServiceInterface
 
     public function getQueue(string $queue): array
     {
-        $this->reconnect();
         $redis = $this->getRedis();
 
         $collected = [];
@@ -296,7 +304,6 @@ class RedisCacheService implements CacheServiceInterface
 
     public function getQueueLength(string $queue): int
     {
-        $this->reconnect();
         $redis = $this->getRedis();
         return intval($redis->lLen($queue));
     }
@@ -305,7 +312,6 @@ class RedisCacheService implements CacheServiceInterface
     {
 
         $command = $reversed ? 'ZREVRANGE' : 'ZRANGE';
-        $this->reconnect();
         $redis = $this->getRedis();
 
         if ($reversed) {
@@ -341,7 +347,6 @@ class RedisCacheService implements CacheServiceInterface
 
     public function increase(string $key, int $value): self
     {
-        $this->reconnect();
         $redis = $this->getRedis();
         $redis->incrBy($key, $value);
 
@@ -350,7 +355,6 @@ class RedisCacheService implements CacheServiceInterface
 
     public function decrease(string $key, int $value): self
     {
-        $this->reconnect();
         $redis = $this->getRedis();
         $redis->decrBy($key, $value);
 
@@ -359,7 +363,6 @@ class RedisCacheService implements CacheServiceInterface
 
     public function addToSet(string $key, mixed $value): self
     {
-        $this->reconnect();
         $redis = $this->getRedis();
         $redis->sAdd($key, $value);
         return $this;
@@ -367,7 +370,6 @@ class RedisCacheService implements CacheServiceInterface
 
     public function removeFromSet(string $key, mixed $value): self
     {
-        $this->reconnect();
         $redis = $this->getRedis();
         $redis->sRem($key, $value);
         return $this;
@@ -375,7 +377,6 @@ class RedisCacheService implements CacheServiceInterface
 
     public function getSet(string $key): ?array
     {
-        $this->reconnect();
         $redis = $this->getRedis();
         $members = $redis->sMembers($key);
         if ($members === false) {
@@ -387,7 +388,6 @@ class RedisCacheService implements CacheServiceInterface
 
     public function createSet(string $key, array $values): self
     {
-        $this->reconnect();
         $redis = $this->getRedis();
         $redis->del($key); // delete existing set if any
         $redis->sAddArray($key, $values);

@@ -2,7 +2,6 @@ default:
     suites:
         default:
             contexts:
-                - Praetorian\Tests\CacheService\Behat\RedisCacheServiceContext:
-                    host: '127.0.0.1'
-                    port: 6379
-
+                - FeatureContext
+            paths:
+                - '%paths.base%/features'
