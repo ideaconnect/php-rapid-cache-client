@@ -22,9 +22,33 @@ jobs:
       uses: shivammathur/setup-php@v2
       with:
         php-version: ${{ matrix.php-version }}
-        extensions: redis, igbinary, xdebug
+        extensions: igbinary, xdebug
         coverage: xdebug
         tools: composer:v2
+
+    - name: Install Redis extension with igbinary support
+      run: |
+        echo "Installing Redis extension with igbinary support..."
+        
+        # Use shivammathur/setup-php to install redis with igbinary
+        sudo apt-get update
+        sudo apt-get install -y autoconf build-essential
+        
+        # Download and compile Redis extension with igbinary support
+        wget https://github.com/phpredis/phpredis/archive/5.3.7.tar.gz
+        tar -xzf 5.3.7.tar.gz
+        cd phpredis-5.3.7
+        
+        phpize
+        ./configure --enable-redis-igbinary
+        make
+        sudo make install
+        
+        # Add Redis extension to php.ini
+        echo "extension=redis.so" | sudo tee -a $(php --ini | grep "Loaded Configuration" | sed -e "s|.*:\s*||")
+        
+        cd ..
+        rm -rf phpredis-5.3.7 5.3.7.tar.gz
 
     - name: Verify PHP Extensions and Redis Constants
       run: |
