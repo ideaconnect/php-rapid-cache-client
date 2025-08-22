@@ -1,5 +1,5 @@
 {
-    "name": "gryf-oss/cache",
+    "name": "gryf-oss/rapid-cache-client",
     "description": "Caching service",
     "type": "library",
     "license": "MIT",
