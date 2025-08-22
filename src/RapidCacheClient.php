@@ -30,7 +30,7 @@ class RapidCacheClient implements CacheServiceInterface
 
     protected function reconnect()
     {
-        $redis = new Redis();
+        $redis = $this->createRedisInstance();
         $redis->connect($this->host, $this->port);
         if ($this->prefix) {
             $redis->setOption(Redis::OPT_PREFIX, $this->prefix);
@@ -39,6 +39,11 @@ class RapidCacheClient implements CacheServiceInterface
         $this->redis = $redis;
 
         return $this;
+    }
+
+    protected function createRedisInstance(): Redis
+    {
+        return new Redis();
     }
 
     protected function getRedis() : Redis
