@@ -25,6 +25,25 @@ jobs:
         extensions: redis, igbinary, xdebug
         coverage: xdebug
         tools: composer:v2
+        ini-values: |
+          redis.serializer=igbinary
+
+    - name: Verify PHP Extensions
+      run: |
+        echo "Checking PHP extensions..."
+        php -m | grep -E "(redis|igbinary|xdebug)"
+        echo "Checking Redis constants..."
+        php -r "
+        if (defined('Redis::SERIALIZER_IGBINARY')) {
+          echo 'Redis::SERIALIZER_IGBINARY is available: ' . Redis::SERIALIZER_IGBINARY . PHP_EOL;
+        } else {
+          echo 'Redis::SERIALIZER_IGBINARY is NOT available' . PHP_EOL;
+          echo 'Available serializers:' . PHP_EOL;
+          if (defined('Redis::SERIALIZER_NONE')) echo '  Redis::SERIALIZER_NONE: ' . Redis::SERIALIZER_NONE . PHP_EOL;
+          if (defined('Redis::SERIALIZER_PHP')) echo '  Redis::SERIALIZER_PHP: ' . Redis::SERIALIZER_PHP . PHP_EOL;
+          if (defined('Redis::SERIALIZER_JSON')) echo '  Redis::SERIALIZER_JSON: ' . Redis::SERIALIZER_JSON . PHP_EOL;
+        }
+        "
 
     - name: Install Redis CLI
       run: |
