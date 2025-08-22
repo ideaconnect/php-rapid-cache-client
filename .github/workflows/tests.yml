@@ -91,12 +91,38 @@ jobs:
         redis-cli -h localhost -p 6380 ping
         redis-cli -h localhost -p 6380 info server | head -5
 
+    - name: Debug Test Environment
+      env:
+        REDIS_HOST: localhost
+        REDIS_PORT: 6380
+      run: |
+        echo "Environment variables:"
+        echo "REDIS_HOST: $REDIS_HOST"
+        echo "REDIS_PORT: $REDIS_PORT"
+        echo ""
+        echo "PHP version and extensions:"
+        php -v
+        php -m | grep -E "(redis|igbinary)"
+        echo ""
+        echo "Testing simple Redis connection:"
+        php -r "
+        \$redis = new Redis();
+        try {
+            \$redis->connect('localhost', 6380);
+            echo 'Redis connection: SUCCESS' . PHP_EOL;
+            \$redis->close();
+        } catch (Exception \$e) {
+            echo 'Redis connection failed: ' . \$e->getMessage() . PHP_EOL;
+        }
+        "
+
     - name: Run Unit Tests with Coverage
       env:
         REDIS_HOST: localhost
         REDIS_PORT: 6380
         XDEBUG_MODE: coverage
       run: |
+        # Run unit tests with proper environment variables to avoid DNS resolution issues
         php vendor/bin/phpunit --coverage-text --coverage-clover=coverage.xml 2>&1 | tee coverage_output.txt
 
     - name: Check 100% Coverage Requirement

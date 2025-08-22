@@ -788,8 +788,12 @@ class RapidCacheClientTest extends TestCase
 
     public function testGetRedisWhenRedisIsNull(): void
     {
+        // Use environment variables for connection
+        $host = $_ENV['REDIS_HOST'] ?? 'localhost';
+        $port = (int)($_ENV['REDIS_PORT'] ?? 6379);
+        
         // Create a real service instance to test getRedis behavior
-        $service = new RapidCacheClient('localhost', 6379, 'test:');
+        $service = new RapidCacheClient($host, $port, 'test:');
 
         // Use reflection to set redis to null
         $reflection = new \ReflectionClass($service);
@@ -799,7 +803,7 @@ class RapidCacheClientTest extends TestCase
 
         // Create a partial mock that allows real getRedis but mocks reconnect
         $serviceMock = $this->getMockBuilder(RapidCacheClient::class)
-            ->setConstructorArgs(['localhost', 6379, 'test:'])
+            ->setConstructorArgs([$host, $port, 'test:'])
             ->onlyMethods(['reconnect'])
             ->getMock();
 
