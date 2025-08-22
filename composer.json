@@ -13,7 +13,7 @@
             "name": "Karol from Praetorian Technology",
             "email": "karol@praetorian.technology",
             "role": "Developer"
-        },
+        }
     ],
     "minimum-stability": "stable",
     "require": {
