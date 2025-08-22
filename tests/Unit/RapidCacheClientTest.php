@@ -791,7 +791,7 @@ class RapidCacheClientTest extends TestCase
         // Use environment variables for connection
         $host = $_ENV['REDIS_HOST'] ?? 'localhost';
         $port = (int)($_ENV['REDIS_PORT'] ?? 6379);
-        
+
         // Create a real service instance to test getRedis behavior
         $service = new RapidCacheClient($host, $port, 'test:');
 
@@ -955,20 +955,15 @@ class RapidCacheClientTest extends TestCase
             )
             ->willReturn(true);
 
-        // Create an anonymous class that extends RapidCacheClient for testing
-        $service = new class('test-host', 1234, 'test-prefix:') extends RapidCacheClient {
-            private $testRedisInstance;
+        // Create a partial mock of RapidCacheClient that mocks createRedisInstance
+        $service = $this->getMockBuilder(RapidCacheClient::class)
+            ->setConstructorArgs(['test-host', 1234, 'test-prefix:'])
+            ->onlyMethods(['createRedisInstance'])
+            ->getMock();
 
-            public function setTestRedisInstance($redis) {
-                $this->testRedisInstance = $redis;
-            }
-
-            protected function createRedisInstance(): Redis {
-                return $this->testRedisInstance;
-            }
-        };
-
-        $service->setTestRedisInstance($mockRedis);
+        $service->expects($this->once())
+            ->method('createRedisInstance')
+            ->willReturn($mockRedis);
 
         // Call reconnect through reflection
         $reflection = new \ReflectionClass($service);
@@ -1002,20 +997,15 @@ class RapidCacheClientTest extends TestCase
             ->with(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY)
             ->willReturn(true);
 
-        // Create service without prefix (null) using anonymous class
-        $service = new class('test-host', 1234, null) extends RapidCacheClient {
-            private $testRedisInstance;
+        // Create a partial mock of RapidCacheClient that mocks createRedisInstance
+        $service = $this->getMockBuilder(RapidCacheClient::class)
+            ->setConstructorArgs(['test-host', 1234, null])
+            ->onlyMethods(['createRedisInstance'])
+            ->getMock();
 
-            public function setTestRedisInstance($redis) {
-                $this->testRedisInstance = $redis;
-            }
-
-            protected function createRedisInstance(): Redis {
-                return $this->testRedisInstance;
-            }
-        };
-
-        $service->setTestRedisInstance($mockRedis);
+        $service->expects($this->once())
+            ->method('createRedisInstance')
+            ->willReturn($mockRedis);
 
         // Call reconnect through reflection
         $reflection = new \ReflectionClass($service);
