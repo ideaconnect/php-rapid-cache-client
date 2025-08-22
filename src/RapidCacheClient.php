@@ -9,6 +9,19 @@ use InvalidArgumentException;
 use Redis;
 use function sprintf;
 
+/**
+ * High-performance Redis-based cache client implementing CacheServiceInterface.
+ *
+ * This class provides a comprehensive caching solution with support for:
+ * - Basic cache operations (get, set, delete, clear)
+ * - Tagging system for grouping cache entries
+ * - Queue operations for FIFO processing
+ * - Set operations for unique collections
+ * - Sorted sets with scoring
+ * - Atomic increment/decrement operations
+ * - TTL support with validation
+ * - Automatic reconnection handling
+ */
 class RapidCacheClient implements CacheServiceInterface
 {
     const DEFAULT_REDIS_PORT = 6139;
@@ -20,6 +33,13 @@ class RapidCacheClient implements CacheServiceInterface
     /** @var Redis|null */
     private $redis;
 
+    /**
+     * Constructor for RapidCacheClient.
+     *
+     * @param string $host Redis server hostname or IP address
+     * @param int|null $port Redis server port (default: 6379)
+     * @param string|null $prefix Optional key prefix for namespacing
+     */
     public function __construct(
         private string $host,
         private ?int $port = self::DEFAULT_REDIS_PORT,
@@ -28,6 +48,12 @@ class RapidCacheClient implements CacheServiceInterface
 
     }
 
+    /**
+     * Establishes or re-establishes connection to Redis server.
+     * Configures serialization options and key prefix.
+     *
+     * @return self Fluent interface
+     */
     protected function reconnect()
     {
         $redis = $this->createRedisInstance();
@@ -41,11 +67,22 @@ class RapidCacheClient implements CacheServiceInterface
         return $this;
     }
 
+    /**
+     * Factory method to create Redis instance.
+     * Can be overridden for testing or custom Redis configurations.
+     *
+     * @return Redis New Redis instance
+     */
     protected function createRedisInstance(): Redis
     {
         return new Redis();
     }
 
+    /**
+     * Gets active Redis connection, reconnecting if necessary.
+     *
+     * @return Redis Active Redis connection
+     */
     protected function getRedis() : Redis
     {
         if ($this->redis === null || !$this->redis->isConnected()) {
@@ -118,6 +155,13 @@ class RapidCacheClient implements CacheServiceInterface
         return $this;
     }
 
+    /**
+     * Removes a cache key from all associated tag hashes.
+     * Cleans up reverse lookup sets used for tag management.
+     *
+     * @param string $key The cache key to remove from tag associations
+     * @return self Fluent interface
+     */
     private function removeKeyFromTagHashes(string $key): self
     {
         $redis = $this->getRedis();
@@ -135,6 +179,9 @@ class RapidCacheClient implements CacheServiceInterface
         return $this;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function untag(string $key, string $tag): self
     {
         $redis = $this->getRedis();
@@ -278,6 +325,9 @@ class RapidCacheClient implements CacheServiceInterface
         return $this;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getCardinality(string $set, bool $sortedSet = false): int
     {
         $redis = $this->getRedis();
@@ -295,6 +345,9 @@ class RapidCacheClient implements CacheServiceInterface
         return intval($redis->sCard($set));
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getQueue(string $queue): array
     {
         $redis = $this->getRedis();
@@ -309,12 +362,18 @@ class RapidCacheClient implements CacheServiceInterface
         return $collected;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getQueueLength(string $queue): int
     {
         $redis = $this->getRedis();
         return intval($redis->lLen($queue));
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getSorted(string $set, int $count, int $offset = 0, bool $reversed = false): Generator
     {
 
@@ -352,6 +411,9 @@ class RapidCacheClient implements CacheServiceInterface
         }
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function increase(string $key, int $value): self
     {
         $redis = $this->getRedis();
@@ -360,6 +422,9 @@ class RapidCacheClient implements CacheServiceInterface
         return $this;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function decrease(string $key, int $value): self
     {
         $redis = $this->getRedis();
@@ -368,6 +433,9 @@ class RapidCacheClient implements CacheServiceInterface
         return $this;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function addToSet(string $key, mixed $value): self
     {
         $redis = $this->getRedis();
@@ -375,6 +443,9 @@ class RapidCacheClient implements CacheServiceInterface
         return $this;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function removeFromSet(string $key, mixed $value): self
     {
         $redis = $this->getRedis();
@@ -382,6 +453,9 @@ class RapidCacheClient implements CacheServiceInterface
         return $this;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getSet(string $key): ?array
     {
         $redis = $this->getRedis();
@@ -393,6 +467,9 @@ class RapidCacheClient implements CacheServiceInterface
         return $members;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function createSet(string $key, array $values): self
     {
         $redis = $this->getRedis();

@@ -5,20 +5,15 @@
     "license": "MIT",
     "authors": [
         {
-            "name": "Bartosz from Praetorian Technology",
-            "email": "bartosz@praetorian.technology",
-            "role": "Lead Developer"
+            "name": "IDCT Bartosz Pachołek",
+            "email": "bartosz+github@idct.tech",
+            "role": "Developer"
         },
         {
             "name": "Karol from Praetorian Technology",
             "email": "karol@praetorian.technology",
-            "role": "Software Developer"
+            "role": "Developer"
         },
-        {
-            "name": "Davor Minchorov",
-            "email": "davor@praetorian.technology",
-            "role": "Software Developer"
-        }
     ],
     "minimum-stability": "stable",
     "require": {
