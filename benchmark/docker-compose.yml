@@ -1,0 +1,32 @@
+services:
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    container_name: benchmark-valkey
+    ports:
+      - "6381:6379"  # Different port to avoid conflicts
+    command: valkey-server --appendonly yes --save ""
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  benchmark:
+    build: .
+    container_name: cache-benchmark
+    volumes:
+      - .:/app
+      - ../:/cache-service
+    depends_on:
+      valkey:
+        condition: service_healthy
+    environment:
+      - REDIS_HOST=valkey
+      - REDIS_PORT=6379
+    working_dir: /app
+    command: tail -f /dev/null
+
+volumes:
+  valkey_data:

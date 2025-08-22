@@ -1,0 +1,36 @@
+{
+    "name": "praetorian/cache-benchmark",
+    "description": "Benchmark comparison between different Redis cache implementations",
+    "type": "project",
+    "require": {
+        "php": "^8.2",
+        "ext-igbinary": "*",
+        "ext-redis": "*",
+        "ext-json": "*",
+        "praetoriantechnology/cache-service": "*",
+        "symfony/cache": "^7.0",
+        "symfony/console": "^7.0",
+        "monolog/monolog": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Praetorian\\CacheBenchmark\\": "src/"
+        }
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../"
+        }
+    ],
+    "scripts": {
+        "benchmark": "php bin/benchmark.php",
+        "benchmark:all": [
+            "php bin/benchmark.php --adapter=praetorian",
+            "php bin/benchmark.php --adapter=symfony-igbinary",
+            "php bin/benchmark.php --adapter=symfony-json"
+        ]
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

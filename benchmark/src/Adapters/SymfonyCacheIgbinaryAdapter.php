@@ -1,0 +1,100 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Praetorian\CacheBenchmark\Adapters;
+
+use Praetorian\CacheBenchmark\CacheAdapterInterface;
+use Praetorian\CacheBenchmark\ComplexTestObject;
+use Symfony\Component\Cache\Adapter\RedisTagAwareAdapter;
+use Symfony\Component\Cache\Marshaller\DefaultMarshaller;
+
+class SymfonyCacheIgbinaryAdapter implements CacheAdapterInterface
+{
+    private RedisTagAwareAdapter $cache;
+
+    public function __construct(string $host = 'localhost', int $port = 6381)
+    {
+        $redis = new \Redis();
+        $redis->connect($host, $port);
+        $redis->setOption(\Redis::OPT_PREFIX, 'symfony_igb:');
+
+        // Use DefaultMarshaller with igbinary (true parameter)
+        $marshaller = new DefaultMarshaller(true);
+
+        $this->cache = new RedisTagAwareAdapter($redis, '', 0, $marshaller);
+    }
+
+    public function set(string $key, ComplexTestObject $object): void
+    {
+        $item = $this->cache->getItem($key);
+        $item->set($object->toArray());
+        $this->cache->save($item);
+    }
+
+    public function setWithTag(string $key, ComplexTestObject $object, string $tag): void
+    {
+        $item = $this->cache->getItem($key);
+        $item->set($object->toArray());
+        $item->tag($tag);
+        $this->cache->save($item);
+
+        // Track tagged keys for retrieval (since Symfony doesn't provide getByTag)
+        $tagMetadataItem = $this->cache->getItem("_tag_metadata_{$tag}");
+        $taggedKeys = $tagMetadataItem->isHit() ? $tagMetadataItem->get() : [];
+        $taggedKeys[] = $key;
+        $tagMetadataItem->set(array_unique($taggedKeys));
+        $tagMetadataItem->tag("_metadata");
+        $this->cache->save($tagMetadataItem);
+    }
+
+    public function get(string $key): ?ComplexTestObject
+    {
+        $item = $this->cache->getItem($key);
+        if (!$item->isHit()) {
+            return null;
+        }
+
+        $data = $item->get();
+        return ComplexTestObject::fromArray($data);
+    }
+
+    public function getTagged(string $tag): array
+    {
+        $results = [];
+        // Use Symfony's invalidateTags to get all items with a specific tag
+        // Since Symfony doesn't have a direct getByTag method, we need to track keys ourselves
+        // Let's use a different approach - store tag metadata
+        $tagMetadataItem = $this->cache->getItem("_tag_metadata_{$tag}");
+        if ($tagMetadataItem->isHit()) {
+            $taggedKeys = $tagMetadataItem->get();
+            $items = $this->cache->getItems($taggedKeys);
+            foreach ($items as $key => $item) {
+                if ($item->isHit()) {
+                    $results[$key] = ComplexTestObject::fromArray($item->get());
+                }
+            }
+        }
+        return $results;
+    }
+
+    public function delete(string $key): void
+    {
+        $this->cache->deleteItem($key);
+    }
+
+    public function clear(): void
+    {
+        $this->cache->clear();
+    }
+
+    public function getName(): string
+    {
+        return 'Symfony Cache (RedisTagAware with igbinary)';
+    }
+
+    public function supportsTagging(): bool
+    {
+        return true;
+    }
+}
