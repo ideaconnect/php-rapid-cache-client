@@ -41,9 +41,19 @@ class RapidCacheClient implements CacheServiceInterface
         return $this;
     }
 
-    protected function createRedisInstance(): Redis
+    private function createRedisInstance(): Redis
     {
-        return new Redis();
+        $redis = new Redis();
+        $redis->connect($this->host, $this->port);
+        
+        // Set serializer with fallback
+        if (defined('Redis::SERIALIZER_IGBINARY')) {
+            $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY);
+        } elseif (defined('Redis::SERIALIZER_PHP')) {
+            $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP);
+        }
+        
+        return $redis;
     }
 
     protected function getRedis() : Redis

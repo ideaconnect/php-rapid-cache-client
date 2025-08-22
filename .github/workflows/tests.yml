@@ -25,25 +25,28 @@ jobs:
         extensions: redis, igbinary, xdebug
         coverage: xdebug
         tools: composer:v2
-        ini-values: |
-          redis.serializer=igbinary
 
-    - name: Verify PHP Extensions
+    - name: Verify PHP Extensions and Redis Constants
       run: |
-        echo "Checking PHP extensions..."
+        echo "=== PHP Extensions ==="
         php -m | grep -E "(redis|igbinary|xdebug)"
-        echo "Checking Redis constants..."
+        echo ""
+        echo "=== Redis Extension Info ==="
+        php --ri redis | head -20
+        echo ""
+        echo "=== Testing Redis Constants ==="
         php -r "
-        if (defined('Redis::SERIALIZER_IGBINARY')) {
-          echo 'Redis::SERIALIZER_IGBINARY is available: ' . Redis::SERIALIZER_IGBINARY . PHP_EOL;
-        } else {
-          echo 'Redis::SERIALIZER_IGBINARY is NOT available' . PHP_EOL;
-          echo 'Available serializers:' . PHP_EOL;
-          if (defined('Redis::SERIALIZER_NONE')) echo '  Redis::SERIALIZER_NONE: ' . Redis::SERIALIZER_NONE . PHP_EOL;
-          if (defined('Redis::SERIALIZER_PHP')) echo '  Redis::SERIALIZER_PHP: ' . Redis::SERIALIZER_PHP . PHP_EOL;
-          if (defined('Redis::SERIALIZER_JSON')) echo '  Redis::SERIALIZER_JSON: ' . Redis::SERIALIZER_JSON . PHP_EOL;
+        echo 'Redis class: ' . (class_exists('Redis') ? 'Available' : 'Missing') . PHP_EOL;
+        if (class_exists('Redis')) {
+          echo 'Redis::SERIALIZER_NONE: ' . (defined('Redis::SERIALIZER_NONE') ? Redis::SERIALIZER_NONE : 'undefined') . PHP_EOL;
+          echo 'Redis::SERIALIZER_PHP: ' . (defined('Redis::SERIALIZER_PHP') ? Redis::SERIALIZER_PHP : 'undefined') . PHP_EOL;
+          echo 'Redis::SERIALIZER_IGBINARY: ' . (defined('Redis::SERIALIZER_IGBINARY') ? Redis::SERIALIZER_IGBINARY : 'undefined') . PHP_EOL;
+          echo 'Redis::SERIALIZER_JSON: ' . (defined('Redis::SERIALIZER_JSON') ? Redis::SERIALIZER_JSON : 'undefined') . PHP_EOL;
         }
         "
+        echo ""
+        echo "=== Igbinary Extension Info ==="
+        php --ri igbinary
 
     - name: Install Redis CLI
       run: |
