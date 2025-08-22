@@ -170,8 +170,8 @@ jobs:
         # Verify Redis connection before running Behat
         redis-cli -h localhost -p 6380 ping
 
-        # Run Behat tests
-        php vendor/bin/behat --strict --no-interaction
+        # Run Behat tests with the comprehensive feature file
+        php vendor/bin/behat features/cache_comprehensive.feature --strict --no-interaction
 
     - name: Test Summary
       if: success()
