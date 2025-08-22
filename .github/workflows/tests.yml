@@ -1,18 +1,147 @@
-name: tests
+name: Tests
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main, updated, 4.x ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ main, updated, 4.x ]
 
 jobs:
-
-  build:
-
+  tests:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        php-version: ['8.2', '8.3', '8.4']
+
     steps:
-    - uses: actions/checkout@v3
-    - name: Build the Docker testing kmage and run
-      run: ./test.sh
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php-version }}
+        extensions: redis, igbinary, xdebug
+        coverage: xdebug
+        tools: composer:v2
+
+    - name: Install Redis CLI
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y redis-tools
+
+    - name: Start Redis/Valkey with Composer Script
+      run: |
+        echo "Starting Redis/Valkey using composer script..."
+        composer redis:start
+        composer redis:wait
+
+        # Additional verification
+        echo "Verifying Redis/Valkey is ready..."
+        timeout 30 bash -c 'until redis-cli -h localhost -p 6380 ping; do sleep 1; done'
+        echo "Redis/Valkey is ready!"
+
+    - name: Validate composer.json and composer.lock
+      run: composer validate --strict
+
+    - name: Cache Composer packages
+      id: composer-cache
+      uses: actions/cache@v3
+      with:
+        path: vendor
+        key: ${{ runner.os }}-php-${{ matrix.php-version }}-${{ hashFiles('**/composer.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-php-${{ matrix.php-version }}-
+
+    - name: Install dependencies
+      run: composer install --prefer-dist --no-progress
+
+    - name: Verify Redis Connection
+      env:
+        REDIS_HOST: localhost
+        REDIS_PORT: 6380
+      run: |
+        echo "Testing Redis connection..."
+        redis-cli -h localhost -p 6380 ping
+        redis-cli -h localhost -p 6380 info server | head -5
+
+    - name: Run Unit Tests with Coverage
+      env:
+        REDIS_HOST: localhost
+        REDIS_PORT: 6380
+        XDEBUG_MODE: coverage
+      run: |
+        php vendor/bin/phpunit --coverage-text --coverage-clover=coverage.xml 2>&1 | tee coverage_output.txt
+
+    - name: Check 100% Coverage Requirement
+      run: |
+        echo "Checking coverage requirements..."
+
+        # Show the coverage output for debugging
+        echo "=== Coverage Output ==="
+        cat coverage_output.txt
+        echo "======================="
+
+        # Extract coverage percentages from the PHPUnit output
+        METHODS_COVERAGE=$(grep "Methods:" coverage_output.txt | grep -oE '[0-9]+\.[0-9]+%' | head -1 | sed 's/%//')
+        LINES_COVERAGE=$(grep "Lines:" coverage_output.txt | grep -oE '[0-9]+\.[0-9]+%' | head -1 | sed 's/%//')
+
+        echo "Extracted Methods Coverage: ${METHODS_COVERAGE}%"
+        echo "Extracted Lines Coverage: ${LINES_COVERAGE}%"
+
+        # Validate that we got valid numbers
+        if [ -z "$METHODS_COVERAGE" ] || [ -z "$LINES_COVERAGE" ]; then
+          echo "❌ Failed to extract coverage percentages"
+          exit 1
+        fi
+
+        # Check if coverage is 100% (allowing for floating point comparison)
+        if ! awk "BEGIN {exit !($METHODS_COVERAGE >= 100)}"; then
+          echo "❌ Methods coverage is ${METHODS_COVERAGE}% - Required: 100%"
+          exit 1
+        fi
+
+        if ! awk "BEGIN {exit !($LINES_COVERAGE >= 100)}"; then
+          echo "❌ Lines coverage is ${LINES_COVERAGE}% - Required: 100%"
+          exit 1
+        fi
+
+        echo "✅ Coverage requirement met: Methods ${METHODS_COVERAGE}%, Lines ${LINES_COVERAGE}%"
+
+    - name: Run Functional Tests (Behat)
+      env:
+        REDIS_HOST: localhost
+        REDIS_PORT: 6380
+      run: |
+        echo "Running Behat functional tests..."
+
+        # Verify Redis connection before running Behat
+        redis-cli -h localhost -p 6380 ping
+
+        # Run Behat tests
+        php vendor/bin/behat --strict --no-interaction
+
+    - name: Test Summary
+      if: success()
+      run: |
+        echo "🎉 All tests passed successfully!"
+        echo "✅ Unit tests: PASSED with 100% coverage"
+        echo "✅ Functional tests: PASSED"
+        echo "✅ PHP ${{ matrix.php-version }}: COMPATIBLE"
+
+    - name: Stop Redis/Valkey
+      if: always()
+      run: |
+        echo "Stopping Redis/Valkey containers..."
+        composer redis:stop
+
+    - name: Upload coverage reports (for debugging)
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report-php-${{ matrix.php-version }}
+        path: |
+          coverage_output.txt
+          coverage.xml
+          report/

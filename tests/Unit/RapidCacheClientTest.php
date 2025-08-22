@@ -935,13 +935,13 @@ class RapidCacheClientTest extends TestCase
     {
         // Test that reconnect() properly calls Redis methods when prefix is set
         $mockRedis = $this->createMock(Redis::class);
-        
+
         // Mock Redis constructor behavior
         $mockRedis->expects($this->once())
             ->method('connect')
             ->with('test-host', 1234)
             ->willReturn(true);
-            
+
         // Expect prefix to be set since we're providing one
         $mockRedis->expects($this->exactly(2))
             ->method('setOption')
@@ -950,31 +950,31 @@ class RapidCacheClientTest extends TestCase
                 [Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY]
             )
             ->willReturn(true);
-            
+
         // Create an anonymous class that extends RapidCacheClient for testing
         $service = new class('test-host', 1234, 'test-prefix:') extends RapidCacheClient {
             private $testRedisInstance;
-            
+
             public function setTestRedisInstance($redis) {
                 $this->testRedisInstance = $redis;
             }
-            
+
             protected function createRedisInstance(): Redis {
                 return $this->testRedisInstance;
             }
         };
-        
+
         $service->setTestRedisInstance($mockRedis);
-            
+
         // Call reconnect through reflection
         $reflection = new \ReflectionClass($service);
         $reconnectMethod = $reflection->getMethod('reconnect');
         $reconnectMethod->setAccessible(true);
         $result = $reconnectMethod->invoke($service);
-        
+
         // Verify method chaining
         $this->assertSame($service, $result);
-        
+
         // Verify Redis instance was assigned using parent class reflection
         $parentReflection = new \ReflectionClass(RapidCacheClient::class);
         $redisProperty = $parentReflection->getProperty('redis');
@@ -986,42 +986,42 @@ class RapidCacheClientTest extends TestCase
     {
         // Test that reconnect() properly calls Redis methods when NO prefix is set
         $mockRedis = $this->createMock(Redis::class);
-        
+
         $mockRedis->expects($this->once())
             ->method('connect')
             ->with('test-host', 1234)
             ->willReturn(true);
-            
+
         // Expect only serializer to be set (no prefix option should be called)
         $mockRedis->expects($this->once())
             ->method('setOption')
             ->with(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY)
             ->willReturn(true);
-            
+
         // Create service without prefix (null) using anonymous class
         $service = new class('test-host', 1234, null) extends RapidCacheClient {
             private $testRedisInstance;
-            
+
             public function setTestRedisInstance($redis) {
                 $this->testRedisInstance = $redis;
             }
-            
+
             protected function createRedisInstance(): Redis {
                 return $this->testRedisInstance;
             }
         };
-        
+
         $service->setTestRedisInstance($mockRedis);
-            
+
         // Call reconnect through reflection
         $reflection = new \ReflectionClass($service);
         $reconnectMethod = $reflection->getMethod('reconnect');
         $reconnectMethod->setAccessible(true);
         $result = $reconnectMethod->invoke($service);
-        
+
         // Verify method chaining
         $this->assertSame($service, $result);
-        
+
         // Verify Redis instance was assigned using parent class reflection
         $parentReflection = new \ReflectionClass(RapidCacheClient::class);
         $redisProperty = $parentReflection->getProperty('redis');
