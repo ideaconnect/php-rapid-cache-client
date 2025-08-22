@@ -29,11 +29,11 @@ test-comprehensive: up
 	@export REDIS_HOST=localhost && export REDIS_PORT=6380 && ./vendor/bin/behat features/cache_comprehensive.feature --colors
 	@$(MAKE) down
 
-# Run original tests
+# Run original tests (now using comprehensive feature)
 test: up
 	@echo "Waiting for Valkey to be ready..."
 	@sleep 10
-	@export REDIS_HOST=localhost && export REDIS_PORT=6380 && ./vendor/bin/behat features/cache.feature --colors
+	@export REDIS_HOST=localhost && export REDIS_PORT=6380 && ./vendor/bin/behat features/cache_comprehensive.feature --colors
 	@$(MAKE) down
 
 # Run full benchmarks (100,000 items)
