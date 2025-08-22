@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 require_once 'vendor/autoload.php';
 
-use Praetorian\CacheService\RedisCacheService;
+use GryfOSS\Cache\RapidCacheClient;
 
 // Test that the class can be instantiated without errors
-$cacheService = new RedisCacheService('localhost', 6379, 'test_');
+$cacheService = new RapidCacheClient('localhost', 6379, 'test_');
 
-echo "✅ RedisCacheService instantiated successfully\n";
+echo "✅ RapidCacheClient instantiated successfully\n";
 
 // Test that methods can be called (they will fail with connection error, but we're testing the logic)
 try {

@@ -6,15 +6,15 @@ namespace Praetorian\CacheBenchmark\Adapters;
 
 use Praetorian\CacheBenchmark\CacheAdapterInterface;
 use Praetorian\CacheBenchmark\ComplexTestObject;
-use Praetorian\CacheService\RedisCacheService;
+use GryfOSS\Cache\RapidCacheClient;
 
 class PraetorianCacheAdapter implements CacheAdapterInterface
 {
-    private RedisCacheService $cache;
+    private RapidCacheClient $cache;
 
     public function __construct(string $host = 'localhost', int $port = 6381)
     {
-        $this->cache = new RedisCacheService($host, $port, 'praetorian:');
+        $this->cache = new RapidCacheClient($host, $port, 'praetorian:');
     }
 
     public function set(string $key, ComplexTestObject $object): void

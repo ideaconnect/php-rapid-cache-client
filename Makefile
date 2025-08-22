@@ -1,4 +1,4 @@
-.PHONY: test test-comprehensive up down clean benchmark benchmark-basic benchmark-tagged benchmark-quick
+.PHONY: test test-comprehensive test-unit test-unit-no-coverage up down clean benchmark benchmark-basic benchmark-tagged benchmark-quick
 
 # Start Valkey service
 up:
@@ -7,6 +7,20 @@ up:
 # Stop all services
 down:
 	docker compose down
+
+# Run unit tests with coverage
+test-unit: up
+	@echo "Waiting for Valkey to be ready..."
+	@sleep 10
+	@export REDIS_HOST=localhost && export REDIS_PORT=6380 && XDEBUG_MODE=coverage ./vendor/bin/phpunit
+	@$(MAKE) down
+
+# Run unit tests without coverage
+test-unit-no-coverage: up
+	@echo "Waiting for Valkey to be ready..."
+	@sleep 10
+	@export REDIS_HOST=localhost && export REDIS_PORT=6380 && ./vendor/bin/phpunit --no-coverage
+	@$(MAKE) down
 
 # Run comprehensive tests
 test-comprehensive: up

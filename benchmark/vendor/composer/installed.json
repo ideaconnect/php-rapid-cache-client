@@ -1,6 +1,80 @@
 {
     "packages": [
         {
+            "name": "gryf-oss/cache",
+            "version": "4.x-dev",
+            "version_normalized": "4.9999999.9999999.9999999-dev",
+            "dist": {
+                "type": "path",
+                "url": "..",
+                "reference": "e68a00116ffdc5fc7cba4efbe4fdfd2347972246"
+            },
+            "require": {
+                "ext-igbinary": "*",
+                "ext-redis": "*",
+                "php": "^8.2"
+            },
+            "require-dev": {
+                "behat/behat": "^3.8",
+                "friendsofphp/php-cs-fixer": "^2.17",
+                "php-mock/php-mock": "^2.3",
+                "php-mock/php-mock-phpunit": "^2.6",
+                "phpunit/phpunit": "^9.0"
+            },
+            "type": "library",
+            "installation-source": "dist",
+            "autoload": {
+                "psr-4": {
+                    "GryfOSS\\Cache\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "GryfOSS\\Tests\\Cache\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test:unit": [
+                    "XDEBUG_MODE=coverage ./vendor/phpunit/phpunit/phpunit"
+                ],
+                "test:functional": [
+                    "./vendor/bin/behat"
+                ],
+                "test": [
+                    "composer install",
+                    "@test:functional"
+                ],
+                "fix": [
+                    "./vendor/friendsofphp/php-cs-fixer/php-cs-fixer fix --allow-risky=yes"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Bartosz from Praetorian Technology",
+                    "email": "bartosz@praetorian.technology",
+                    "role": "Lead Developer"
+                },
+                {
+                    "name": "Karol from Praetorian Technology",
+                    "email": "karol@praetorian.technology",
+                    "role": "Software Developer"
+                },
+                {
+                    "name": "Davor Minchorov",
+                    "email": "davor@praetorian.technology",
+                    "role": "Software Developer"
+                }
+            ],
+            "description": "Caching service",
+            "transport-options": {
+                "relative": true
+            },
+            "install-path": "../gryf-oss/cache"
+        },
+        {
             "name": "monolog/monolog",
             "version": "3.9.0",
             "version_normalized": "3.9.0.0",
@@ -105,80 +179,6 @@
                 }
             ],
             "install-path": "../monolog/monolog"
-        },
-        {
-            "name": "praetoriantechnology/cache-service",
-            "version": "4.x-dev",
-            "version_normalized": "4.9999999.9999999.9999999-dev",
-            "dist": {
-                "type": "path",
-                "url": "..",
-                "reference": "292f1f71fd2dfc99d24c65daca62918fd239719a"
-            },
-            "require": {
-                "ext-igbinary": "*",
-                "ext-redis": "*",
-                "php": "^8.2"
-            },
-            "require-dev": {
-                "behat/behat": "^3.8",
-                "friendsofphp/php-cs-fixer": "^2.17",
-                "php-mock/php-mock": "^2.3",
-                "php-mock/php-mock-phpunit": "^2.6",
-                "phpunit/phpunit": "^9.0"
-            },
-            "type": "library",
-            "installation-source": "dist",
-            "autoload": {
-                "psr-4": {
-                    "Praetorian\\CacheService\\": "src/"
-                }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Praetorian\\Tests\\CacheService\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test:unit": [
-                    "XDEBUG_MODE=coverage ./vendor/phpunit/phpunit/phpunit"
-                ],
-                "test:functional": [
-                    "./vendor/bin/behat"
-                ],
-                "test": [
-                    "composer install",
-                    "@test:functional"
-                ],
-                "fix": [
-                    "./vendor/friendsofphp/php-cs-fixer/php-cs-fixer fix --allow-risky=yes"
-                ]
-            },
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Bartosz from Praetorian Technology",
-                    "email": "bartosz@praetorian.technology",
-                    "role": "Lead Developer"
-                },
-                {
-                    "name": "Karol from Praetorian Technology",
-                    "email": "karol@praetorian.technology",
-                    "role": "Software Developer"
-                },
-                {
-                    "name": "Davor Minchorov",
-                    "email": "davor@praetorian.technology",
-                    "role": "Software Developer"
-                }
-            ],
-            "description": "Caching service",
-            "transport-options": {
-                "relative": true
-            },
-            "install-path": "../praetoriantechnology/cache-service"
         },
         {
             "name": "psr/cache",

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Praetorian\CacheService;
+namespace GryfOSS\Cache;
 
 use Generator;
 use InvalidArgumentException;
 use Redis;
 use function sprintf;
 
-class RedisCacheService implements CacheServiceInterface
+class RapidCacheClient implements CacheServiceInterface
 {
     const DEFAULT_REDIS_PORT = 6139;
     const MIN_TTL = 1;
@@ -315,9 +315,9 @@ class RedisCacheService implements CacheServiceInterface
         $redis = $this->getRedis();
 
         if ($reversed) {
-            $members = $redis->zRevRange($set, $offset, $offset + $command);
+            $members = $redis->zRevRange($set, $offset, $offset + $count);
         } else {
-            $members = $redis->zRange($set, $offset, $offset + $command);
+            $members = $redis->zRange($set, $offset, $offset + $count);
         }
 
         if (empty($members)) {

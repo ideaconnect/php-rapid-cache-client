@@ -1,5 +1,5 @@
 {
-    "name": "praetoriantechnology/cache-service",
+    "name": "gryf-oss/cache",
     "description": "Caching service",
     "type": "library",
     "license": "MIT",
@@ -28,19 +28,39 @@
     },
     "autoload": {
         "psr-4": {
-            "Praetorian\\CacheService\\": "src/"
+            "GryfOSS\\Cache\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Praetorian\\Tests\\CacheService\\": "tests/"
+            "GryfOSS\\Tests\\Cache\\": "tests/"
         }
     },
     "scripts": {
-        "test:unit": "XDEBUG_MODE=coverage ./vendor/phpunit/phpunit/phpunit",
-        "test:functional": "./vendor/bin/behat",
+        "redis:start": "docker compose up -d valkey",
+        "redis:stop": "docker compose down",
+        "redis:wait": "sleep 10",
+        "test:unit": [
+            "@redis:start",
+            "@redis:wait",
+            "XDEBUG_MODE=coverage ./vendor/phpunit/phpunit/phpunit",
+            "@redis:stop"
+        ],
+        "test:unit-no-coverage": [
+            "@redis:start",
+            "@redis:wait",
+            "./vendor/phpunit/phpunit/phpunit --no-coverage",
+            "@redis:stop"
+        ],
+        "test:functional": [
+            "@redis:start",
+            "@redis:wait",
+            "./vendor/bin/behat",
+            "@redis:stop"
+        ],
         "test": [
             "composer install",
+            "@test:unit",
             "@test:functional"
         ],
         "fix": "./vendor/friendsofphp/php-cs-fixer/php-cs-fixer fix --allow-risky=yes"

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Praetorian\CacheService;
+namespace GryfOSS\Cache;
 
 use Generator;
 

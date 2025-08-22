@@ -34,12 +34,15 @@ class ComposerStaticInit14a1c2a46ee343cdce527e2740c1a3bc
             'Psr\\Log\\' => 8,
             'Psr\\Container\\' => 14,
             'Psr\\Cache\\' => 10,
-            'Praetorian\\CacheService\\' => 24,
             'Praetorian\\CacheBenchmark\\' => 26,
         ),
         'M' => 
         array (
             'Monolog\\' => 8,
+        ),
+        'G' => 
+        array (
+            'GryfOSS\\Cache\\' => 14,
         ),
     );
 
@@ -96,10 +99,6 @@ class ComposerStaticInit14a1c2a46ee343cdce527e2740c1a3bc
         array (
             0 => __DIR__ . '/..' . '/psr/cache/src',
         ),
-        'Praetorian\\CacheService\\' => 
-        array (
-            0 => __DIR__ . '/..' . '/praetoriantechnology/cache-service/src',
-        ),
         'Praetorian\\CacheBenchmark\\' => 
         array (
             0 => __DIR__ . '/../..' . '/src',
@@ -107,6 +106,10 @@ class ComposerStaticInit14a1c2a46ee343cdce527e2740c1a3bc
         'Monolog\\' => 
         array (
             0 => __DIR__ . '/..' . '/monolog/monolog/src/Monolog',
+        ),
+        'GryfOSS\\Cache\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/gryf-oss/cache/src',
         ),
     );
 

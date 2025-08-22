@@ -1,7 +1,7 @@
 <?php
 
 use Behat\Behat\Context\Context;
-use Praetorian\CacheService\RedisCacheService;
+use GryfOSS\Cache\RapidCacheClient;
 use PHPUnit\Framework\Assert;
 
 /**
@@ -9,7 +9,7 @@ use PHPUnit\Framework\Assert;
  */
 class FeatureContext implements Context
 {
-    private RedisCacheService $cacheService;
+    private RapidCacheClient $cacheService;
     private mixed $retrievedValue = null;
     private array $retrievedValues = [];
     private int $retrievedCount = 0;
@@ -24,7 +24,7 @@ class FeatureContext implements Context
         $host = $_ENV['REDIS_HOST'] ?? 'localhost';
         $port = (int)($_ENV['REDIS_PORT'] ?? 6380);
 
-        $this->cacheService = new RedisCacheService($host, $port);
+        $this->cacheService = new RapidCacheClient($host, $port);
         $this->cacheService->clear(); // Start with clean slate
     }
 
