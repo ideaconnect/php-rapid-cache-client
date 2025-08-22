@@ -681,79 +681,108 @@ class RapidCacheClientTest extends TestCase
         $this->assertEquals(['key2' => 'value2', 'key1' => 'value1'], $items);
     }
 
-    public function testReconnectWhenRedisIsNull(): void
+    public function testGetQueue(): void
     {
-        $this->markTestSkipped('Redis constructor mocking requires more complex setup');
-        
-        $host = $_ENV['REDIS_HOST'] ?? 'localhost';
-        $port = (int)($_ENV['REDIS_PORT'] ?? 6379);
-        $service = new RapidCacheClient($host, $port, 'test:');
+        $this->redisMock->expects($this->exactly(2))
+            ->method('isConnected')
+            ->willReturn(true);
 
-        // Mock the Redis constructor
-        $newRedisMock = $this->createMock(Redis::class);
-        $newRedisMock->expects($this->once())
-            ->method('connect')
-            ->with($host, $port);
+        $this->redisMock->expects($this->once())
+            ->method('lLen')
+            ->with('test-queue')
+            ->willReturn(3);
 
-        $newRedisMock->expects($this->once())
-            ->method('setOption')
-            ->withConsecutive(
-                [Redis::OPT_PREFIX, 'test:'],
-                [Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY]
-            );
+        $this->redisMock->expects($this->exactly(3))
+            ->method('rPopLPush')
+            ->with('test-queue', 'test-queue')
+            ->willReturnOnConsecutiveCalls('item1', 'item2', 'item3');
 
-        $newRedisMock->expects($this->once())
-            ->method('get')
-            ->with('test-key')
-            ->willReturn('test-value');
-
-        // Use reflection to simulate null redis connection
-        $reflection = new \ReflectionClass($service);
-        $redisProperty = $reflection->getProperty('redis');
-        $redisProperty->setAccessible(true);
-        $redisProperty->setValue($service, null);
-
-        // This will be hard to test without actually mocking the new Redis() constructor
-        // For now, we'll test the isConnected path
+        $result = $this->cacheService->getQueue('test-queue');
+        $this->assertEquals(['item1', 'item2', 'item3'], $result);
     }
 
-    public function testReconnectWhenRedisIsDisconnected(): void
+    public function testGetQueueLength(): void
     {
-        $this->markTestSkipped('Redis reconnection mocking requires more complex setup');
-        
-        $disconnectedRedisMock = $this->createMock(Redis::class);
-        $disconnectedRedisMock->expects($this->once())
+        $this->redisMock->expects($this->once())
             ->method('isConnected')
-            ->willReturn(false);
+            ->willReturn(true);
 
-        // Prepare the mock for reconnection
-        $disconnectedRedisMock->expects($this->once())
-            ->method('connect')
-            ->with('localhost', 6379);
+        $this->redisMock->expects($this->once())
+            ->method('lLen')
+            ->with('test-queue')
+            ->willReturn(5);
 
-        $disconnectedRedisMock->expects($this->exactly(2))
-            ->method('setOption')
-            ->withConsecutive(
-                [Redis::OPT_PREFIX, 'test:'],
-                [Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY]
-            );
+        $result = $this->cacheService->getQueueLength('test-queue');
+        $this->assertEquals(5, $result);
+    }
 
-        $disconnectedRedisMock->expects($this->once())
+    public function testGetSortedWithEmptySet(): void
+    {
+        $this->redisMock->expects($this->once())
+            ->method('isConnected')
+            ->willReturn(true);
+
+        $this->redisMock->expects($this->once())
+            ->method('zRange')
+            ->with('test-sorted-set', 0, 2)
+            ->willReturn([]);
+
+        $result = $this->cacheService->getSorted('test-sorted-set', 2);
+        $this->assertInstanceOf(Generator::class, $result);
+
+        $items = iterator_to_array($result);
+        $this->assertEquals([], $items);
+    }
+
+    public function testGetSortedWithExpiredKeys(): void
+    {
+        $this->redisMock->expects($this->exactly(7))
+            ->method('isConnected')
+            ->willReturn(true);
+
+        $this->redisMock->expects($this->once())
+            ->method('zRange')
+            ->with('test-sorted-set', 0, 2)
+            ->willReturn(['key1', 'key2']);
+
+        $this->redisMock->expects($this->exactly(2))
             ->method('get')
-            ->with('test-key')
-            ->willReturn('test-value');
+            ->withConsecutive(['key1'], ['key2'])
+            ->willReturn(null, null); // Both keys have expired
 
-        $host = $_ENV['REDIS_HOST'] ?? 'localhost';
-        $port = (int)($_ENV['REDIS_PORT'] ?? 6379);
-        $service = new RapidCacheClient($host, $port, 'test:');
+        // Expected calls for deleting expired keys
+        $this->redisMock->expects($this->exactly(2))
+            ->method('sMembers')
+            ->withConsecutive(['TAGS:key1'], ['TAGS:key2'])
+            ->willReturn([], []);
 
-        // Inject the disconnected mock
-        $reflection = new \ReflectionClass($service);
-        $redisProperty = $reflection->getProperty('redis');
-        $redisProperty->setAccessible(true);
-        $redisProperty->setValue($service, $disconnectedRedisMock);
+        $this->redisMock->expects($this->exactly(4))
+            ->method('del')
+            ->withConsecutive(['TAGS:key1'], ['key1'], ['TAGS:key2'], ['key2']);
 
-        $result = $service->get('test-key');
-        $this->assertEquals('test-value', $result);
+        $result = $this->cacheService->getSorted('test-sorted-set', 2);
+        $items = iterator_to_array($result);
+        $this->assertEquals([], $items);
+    }
+
+    public function testConstructorWithNullPrefix(): void
+    {
+        $service = new RapidCacheClient('test-host', 6379, null);
+        $this->assertInstanceOf(RapidCacheClient::class, $service);
+    }
+
+    public function testGetQueueWithEmptyQueue(): void
+    {
+        $this->redisMock->expects($this->exactly(2))
+            ->method('isConnected')
+            ->willReturn(true);
+
+        $this->redisMock->expects($this->once())
+            ->method('lLen')
+            ->with('empty-queue')
+            ->willReturn(0);
+
+        $result = $this->cacheService->getQueue('empty-queue');
+        $this->assertEquals([], $result);
     }
 }

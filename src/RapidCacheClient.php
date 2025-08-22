@@ -155,8 +155,6 @@ class RapidCacheClient implements CacheServiceInterface
             throw new InvalidArgumentException('Can\'t set null item');
         }
 
-        $redis = $this->getRedis();
-
         if (null !== $ttl) {
             if ($ttl < static::MIN_TTL || $ttl > static::MAX_TTL) {
                 throw new InvalidArgumentException(
@@ -168,7 +166,11 @@ class RapidCacheClient implements CacheServiceInterface
                     )
                 );
             }
+        }
 
+        $redis = $this->getRedis();
+
+        if (null !== $ttl) {
             $redis->setex($key, $ttl, $value);
         } else {
             $redis->set($key, $value);
