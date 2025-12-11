@@ -275,11 +275,28 @@ class RapidCacheClient implements CacheServiceInterface
     {
         $redis = $this->getRedis();
         if ($range !== 1) {
-            return $redis->lRange($queue, 0, $range);
+            $items = $redis->lPop($queue, $range);
+            return $items === false ? null : $items;
         }
 
         $item = $redis->lPop($queue);
         return $item === false ? null : $item;
+    }
+
+    /**
+     * Retrieves item(s) from the beginning of a queue without removing them.
+     */
+    public function peek(string $queue, int $range = 1): mixed
+    {
+        $redis = $this->getRedis();
+
+        if ($range !== 1) {
+            $items = $redis->lRange($queue, 0, $range - 1);
+            return empty($items) ? null : $items;
+        }
+
+        $items = $redis->lRange($queue, 0, 0);
+        return empty($items) ? null : $items[0];
     }
 
     /**

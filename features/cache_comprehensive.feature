@@ -40,6 +40,19 @@ Feature: Redis Cache Service Comprehensive Tests
     When I pop from queue "test_queue"
     Then the retrieved value should be "second"
 
+  Scenario: Peeking from a queue without removing items
+    When I enqueue "first" to queue "peek_queue"
+    And I enqueue "second" to queue "peek_queue"
+    And I enqueue "third" to queue "peek_queue"
+    And I peek from queue "peek_queue"
+    Then the retrieved value should be "first"
+    When I get the length of queue "peek_queue"
+    Then the queue length should be 3
+    When I peek 2 items from queue "peek_queue"
+    Then the retrieved values should equal "first,second"
+    When I pop from queue "peek_queue"
+    Then the retrieved value should be "first"
+
   Scenario: Testing queue length
     When I enqueue "item1" to queue "length_queue"
     And I enqueue "item2" to queue "length_queue"

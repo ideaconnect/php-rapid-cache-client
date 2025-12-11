@@ -133,6 +133,23 @@ class FeatureContext implements Context
     }
 
     /**
+     * @When I peek from queue :queue
+     */
+    public function iPeekFromQueue($queue)
+    {
+        $this->retrievedValue = $this->cacheService->peek($queue);
+    }
+
+    /**
+     * @When I peek :count items from queue :queue
+     */
+    public function iPeekItemsFromQueue($count, $queue)
+    {
+        $result = $this->cacheService->peek($queue, (int)$count);
+        $this->retrievedValues = is_array($result) ? $result : ($result === null ? [] : [$result]);
+    }
+
+    /**
      * @When I get the length of queue :queue
      */
     public function iGetTheLengthOfQueue($queue)
@@ -240,6 +257,15 @@ class FeatureContext implements Context
     public function theRetrievedValuesShouldBeEmpty()
     {
         Assert::assertEmpty($this->retrievedValues);
+    }
+
+    /**
+     * @Then the retrieved values should equal :csv
+     */
+    public function theRetrievedValuesShouldEqual($csv)
+    {
+        $expected = array_map('trim', explode(',', $csv));
+        Assert::assertEquals($expected, $this->retrievedValues);
     }
 
     /**

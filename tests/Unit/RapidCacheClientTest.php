@@ -480,11 +480,56 @@ class RapidCacheClientTest extends TestCase
             ->willReturn(true);
 
         $this->redisMock->expects($this->once())
-            ->method('lRange')
-            ->with('test-queue', 0, 3)
+            ->method('lPop')
+            ->with('test-queue', 3)
             ->willReturn(['item1', 'item2', 'item3']);
 
         $result = $this->cacheService->pop('test-queue', 3);
+        $this->assertEquals(['item1', 'item2', 'item3'], $result);
+    }
+
+    public function testPeekSingleItem(): void
+    {
+        $this->redisMock->expects($this->once())
+            ->method('isConnected')
+            ->willReturn(true);
+
+        $this->redisMock->expects($this->once())
+            ->method('lRange')
+            ->with('test-queue', 0, 0)
+            ->willReturn(['item1']);
+
+        $result = $this->cacheService->peek('test-queue');
+        $this->assertEquals('item1', $result);
+    }
+
+    public function testPeekSingleItemReturnsNullWhenEmpty(): void
+    {
+        $this->redisMock->expects($this->once())
+            ->method('isConnected')
+            ->willReturn(true);
+
+        $this->redisMock->expects($this->once())
+            ->method('lRange')
+            ->with('empty-queue', 0, 0)
+            ->willReturn([]);
+
+        $result = $this->cacheService->peek('empty-queue');
+        $this->assertNull($result);
+    }
+
+    public function testPeekMultipleItems(): void
+    {
+        $this->redisMock->expects($this->once())
+            ->method('isConnected')
+            ->willReturn(true);
+
+        $this->redisMock->expects($this->once())
+            ->method('lRange')
+            ->with('test-queue', 0, 2)
+            ->willReturn(['item1', 'item2', 'item3']);
+
+        $result = $this->cacheService->peek('test-queue', 3);
         $this->assertEquals(['item1', 'item2', 'item3'], $result);
     }
 

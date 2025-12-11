@@ -87,6 +87,15 @@ interface CacheServiceInterface
     public function pop(string $queue, int $range = 1): mixed;
 
     /**
+     * Retrieves item(s) from the beginning of a queue without removing them.
+     *
+     * @param string $queue The queue name
+     * @param int $range Number of items to peek (default: 1)
+     * @return mixed Single item if range=1, array if range>1, null if queue is empty
+     */
+    public function peek(string $queue, int $range = 1): mixed;
+
+    /**
      * Retrieves all items from a queue without removing them.
      *
      * @param string $queue The queue name
