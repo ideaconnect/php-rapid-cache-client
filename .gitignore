@@ -57,3 +57,8 @@ Thumbs.db
 *.cache
 composer.lock
 coverage.txt
+
+# Infection mutation-testing artifacts
+.infection/
+infection-log.txt
+infection-summary.log

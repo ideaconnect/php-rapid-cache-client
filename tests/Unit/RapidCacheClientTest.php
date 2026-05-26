@@ -11,6 +11,7 @@ use IDCT\Cache\RapidCacheClient;
 use IDCT\Cache\RedisConnectionConfig;
 use phpmock\phpunit\PHPMock;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\SimpleCache\CacheInterface;
 use Psr\SimpleCache\InvalidArgumentException as PsrInvalidArgumentException;
@@ -1433,6 +1434,515 @@ class RapidCacheClientTest extends TestCase
 
         $this->expectException(\TypeError::class);
         $client->get('any-key');
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: invalid-key rejection on every public method.
+    // -------------------------------------------------------------------
+
+    /**
+     * @return iterable<string, array{callable(RapidCacheClient): mixed}>
+     */
+    public static function invalidKeyOperationProvider(): iterable
+    {
+        $badKey = 'bad:key';
+        return [
+            'has' => [fn(RapidCacheClient $c) => $c->has($badKey)],
+            'getMultiple invalid key' => [fn(RapidCacheClient $c) => iterator_to_array($c->getMultiple([$badKey]))],
+            'setMultiple invalid key' => [fn(RapidCacheClient $c) => $c->setMultiple([$badKey => 'v'])],
+            'deleteMultiple invalid key' => [fn(RapidCacheClient $c) => $c->deleteMultiple([$badKey])],
+            'setTagged invalid key' => [fn(RapidCacheClient $c) => $c->setTagged($badKey, 'v', 'goodtag')],
+            'setTagged invalid tag' => [fn(RapidCacheClient $c) => $c->setTagged('goodkey', 'v', $badKey)],
+            'getTagged invalid tag' => [fn(RapidCacheClient $c) => iterator_to_array($c->getTagged($badKey))],
+            'tag invalid key' => [fn(RapidCacheClient $c) => $c->tag($badKey, 'goodtag')],
+            'tag invalid tag' => [fn(RapidCacheClient $c) => $c->tag('goodkey', $badKey)],
+            'untag invalid key' => [fn(RapidCacheClient $c) => $c->untag($badKey, 'goodtag')],
+            'untag invalid tag' => [fn(RapidCacheClient $c) => $c->untag('goodkey', $badKey)],
+            'clearByTag invalid tag' => [fn(RapidCacheClient $c) => $c->clearByTag($badKey)],
+            'getTagCardinality invalid tag' => [fn(RapidCacheClient $c) => $c->getTagCardinality($badKey)],
+            'getCardinality invalid set' => [fn(RapidCacheClient $c) => $c->getCardinality($badKey)],
+            'enqueue invalid queue' => [fn(RapidCacheClient $c) => $c->enqueue($badKey, 'v')],
+            'pop invalid queue' => [fn(RapidCacheClient $c) => $c->pop($badKey)],
+            'peek invalid queue' => [fn(RapidCacheClient $c) => $c->peek($badKey)],
+            'getQueue invalid queue' => [fn(RapidCacheClient $c) => $c->getQueue($badKey)],
+            'getQueueLength invalid queue' => [fn(RapidCacheClient $c) => $c->getQueueLength($badKey)],
+            'increase invalid key' => [fn(RapidCacheClient $c) => $c->increase($badKey, 1)],
+            'decrease invalid key' => [fn(RapidCacheClient $c) => $c->decrease($badKey, 1)],
+            'getSorted invalid key' => [fn(RapidCacheClient $c) => iterator_to_array($c->getSorted($badKey, 10))],
+            'addToSet invalid key' => [fn(RapidCacheClient $c) => $c->addToSet($badKey, 'v')],
+            'removeFromSet invalid key' => [fn(RapidCacheClient $c) => $c->removeFromSet($badKey, 'v')],
+            'getSet invalid key' => [fn(RapidCacheClient $c) => $c->getSet($badKey)],
+            'createSet invalid key' => [fn(RapidCacheClient $c) => $c->createSet($badKey, [])],
+        ];
+    }
+
+    /**
+     * @param callable(RapidCacheClient): mixed $op
+     */
+    #[DataProvider('invalidKeyOperationProvider')]
+    public function testRejectsInvalidKeyAcrossEveryApi(callable $op): void
+    {
+        $this->expectException(PsrInvalidArgumentException::class);
+        $op($this->cacheService);
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: reconnect skips optional config branches when not set.
+    // -------------------------------------------------------------------
+
+    public function testReconnectWithoutPasswordSkipsAuth(): void
+    {
+        $redis = $this->createMock(Redis::class);
+        $redis->expects($this->never())->method('auth');
+
+        $config = new RedisConnectionConfig(host: 'h', password: null);
+        $this->forceReconnect($config, $redis);
+    }
+
+    public function testReconnectWithEmptyPasswordSkipsAuth(): void
+    {
+        $redis = $this->createMock(Redis::class);
+        $redis->expects($this->never())->method('auth');
+
+        $config = new RedisConnectionConfig(host: 'h', password: '');
+        $this->forceReconnect($config, $redis);
+    }
+
+    public function testReconnectWithDatabaseZeroSkipsSelect(): void
+    {
+        $redis = $this->createMock(Redis::class);
+        $redis->expects($this->never())->method('select');
+
+        $config = new RedisConnectionConfig(host: 'h', database: 0);
+        $this->forceReconnect($config, $redis);
+    }
+
+    public function testReconnectWithoutPrefixSkipsPrefixOption(): void
+    {
+        $redis = $this->createMock(Redis::class);
+        $optionCalls = [];
+        $redis->method('setOption')->willReturnCallback(
+            function (int $option, mixed $value) use (&$optionCalls): bool {
+                $optionCalls[] = $option;
+                return true;
+            }
+        );
+
+        $config = new RedisConnectionConfig(host: 'h', prefix: null);
+        $this->forceReconnect($config, $redis);
+
+        $this->assertNotContains(
+            Redis::OPT_PREFIX,
+            $optionCalls,
+            'OPT_PREFIX must not be set when no prefix is configured.'
+        );
+    }
+
+    public function testReconnectWithZeroReadTimeoutSkipsReadTimeoutOption(): void
+    {
+        $redis = $this->createMock(Redis::class);
+        $setOptionCalls = [];
+        $redis->method('setOption')->willReturnCallback(
+            function (int $option, mixed $value) use (&$setOptionCalls): bool {
+                $setOptionCalls[] = $option;
+                return true;
+            }
+        );
+
+        $config = new RedisConnectionConfig(host: 'h', readTimeout: 0.0);
+        $this->forceReconnect($config, $redis);
+
+        $this->assertNotContains(
+            Redis::OPT_READ_TIMEOUT,
+            $setOptionCalls,
+            'OPT_READ_TIMEOUT must not be set when readTimeout is 0.'
+        );
+    }
+
+    public function testReconnectUsesNonPersistentConnectByDefault(): void
+    {
+        $redis = $this->createMock(Redis::class);
+        $redis->expects($this->once())
+            ->method('connect')
+            ->with('h', 6379, 1.0);
+        $redis->expects($this->never())->method('pconnect');
+
+        $config = new RedisConnectionConfig(host: 'h');
+        $this->forceReconnect($config, $redis);
+    }
+
+    private function forceReconnect(RedisConnectionConfig $config, Redis $injected): void
+    {
+        $client = new class ($config, $injected) extends RapidCacheClient {
+            public function __construct(RedisConnectionConfig $config, private Redis $injected)
+            {
+                parent::__construct($config);
+            }
+            protected function createRedisInstance(): Redis
+            {
+                return $this->injected;
+            }
+            public function forceConnect(): void
+            {
+                $this->reconnect();
+            }
+        };
+        $client->forceConnect();
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: legacy constructor & default-port handling.
+    // -------------------------------------------------------------------
+
+    public function testLegacyConstructorAppliesDefaultPortWhenNullGiven(): void
+    {
+        $client = new RapidCacheClient('h', null, null);
+        $reflection = new \ReflectionClass($client);
+        $config = $reflection->getProperty('config')->getValue($client);
+        $this->assertInstanceOf(RedisConnectionConfig::class, $config);
+        $this->assertSame(RapidCacheClient::DEFAULT_REDIS_PORT, $config->port);
+    }
+
+    public function testLegacyConstructorPreservesExplicitPort(): void
+    {
+        $client = new RapidCacheClient('h', 7777, null);
+        $reflection = new \ReflectionClass($client);
+        $config = $reflection->getProperty('config')->getValue($client);
+        $this->assertInstanceOf(RedisConnectionConfig::class, $config);
+        $this->assertSame(7777, $config->port);
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: clear() multi-batch SCAN loop semantics.
+    // -------------------------------------------------------------------
+
+    public function testClearWithPrefixIteratesMultipleScanBatches(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('getOption')
+            ->with(Redis::OPT_SCAN)
+            ->willReturn(Redis::SCAN_NORETRY);
+        $this->redisMock->method('setOption')->willReturn(true);
+
+        $scanMatcher = $this->exactly(2);
+        $this->redisMock->expects($scanMatcher)
+            ->method('scan')
+            ->willReturnCallback(
+                function (&$iterator, string $pattern, int $count) use ($scanMatcher) {
+                    $this->assertSame('test:*', $pattern);
+                    $this->assertSame(1000, $count);
+                    switch ($scanMatcher->numberOfInvocations()) {
+                        case 1:
+                            $this->assertNull($iterator);
+                            $iterator = 5;
+                            return ['test:a', 'test:b'];
+                        case 2:
+                            $this->assertSame(5, $iterator);
+                            $iterator = 0;
+                            return ['test:c'];
+                        default:
+                            $this->fail('scan called more than expected — loop should exit when iterator hits 0');
+                    }
+                }
+            );
+        $unlinkMatcher = $this->exactly(2);
+        $this->redisMock->expects($unlinkMatcher)
+            ->method('unlink')
+            ->willReturnCallback(function (array $keys) use ($unlinkMatcher) {
+                match ($unlinkMatcher->numberOfInvocations()) {
+                    1 => $this->assertSame(['test:a', 'test:b'], $keys),
+                    2 => $this->assertSame(['test:c'], $keys),
+                };
+                return 1;
+            });
+
+        $this->assertTrue($this->cacheService->clear());
+    }
+
+    public function testClearSkipsUnlinkOnEmptyBatch(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('getOption')->willReturn(Redis::SCAN_NORETRY);
+        $this->redisMock->method('setOption')->willReturn(true);
+        $this->redisMock->method('scan')->willReturnCallback(
+            function (&$iterator) {
+                $iterator = 0;
+                return [];
+            }
+        );
+        $this->redisMock->expects($this->never())->method('unlink');
+
+        $this->assertTrue($this->cacheService->clear());
+    }
+
+    public function testClearRestoresPrefixAndScanOptionsEvenWhenScanThrows(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('getOption')
+            ->with(Redis::OPT_SCAN)
+            ->willReturn(Redis::SCAN_NORETRY);
+        $setOptionCalls = [];
+        $this->redisMock->method('setOption')->willReturnCallback(
+            function (int $option, mixed $value) use (&$setOptionCalls): bool {
+                $setOptionCalls[] = [$option, $value];
+                return true;
+            }
+        );
+        $this->redisMock->method('scan')
+            ->willThrowException(new \RedisException('scan failed'));
+
+        try {
+            $this->cacheService->clear();
+            $this->fail('Expected CacheException');
+        } catch (\IDCT\Cache\Exception\CacheException) {
+            // expected
+        }
+
+        $this->assertContains(
+            [Redis::OPT_PREFIX, 'test:'],
+            $setOptionCalls,
+            'finally must restore the user-defined prefix even when SCAN throws'
+        );
+        $this->assertContains(
+            [Redis::OPT_SCAN, Redis::SCAN_NORETRY],
+            $setOptionCalls,
+            'finally must restore the prior SCAN option even when SCAN throws'
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: TTL=0 / negative TTL deletion path for tagged + multiple.
+    // -------------------------------------------------------------------
+
+    public function testSetTaggedWithZeroTtlShortCircuitsToDeleteAndSkipsTagging(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('sMembers')
+            ->with('TAGS:test-key')
+            ->willReturn([]);
+        // unindex finds no reverse-tag set → del that reverse-set key.
+        $delMatcher = $this->exactly(2);
+        $this->redisMock->expects($delMatcher)
+            ->method('del')
+            ->willReturnCallback(function (string|array $arg) use ($delMatcher) {
+                match ($delMatcher->numberOfInvocations()) {
+                    1 => $this->assertSame('TAGS:test-key', $arg),
+                    2 => $this->assertSame('test-key', $arg),
+                };
+                return 1;
+            });
+        // Tagging operations MUST NOT happen on TTL=0.
+        $this->redisMock->expects($this->never())->method('sAdd');
+        $this->redisMock->expects($this->never())->method('setex');
+        $this->redisMock->expects($this->never())->method('multi');
+
+        $this->assertTrue($this->cacheService->setTagged('test-key', 'value', 'tag', 0));
+    }
+
+    public function testValidateKeyRejectsBackslashCharacter(): void
+    {
+        // Backslash is reserved by PSR-16; only `preg_quote` makes `\\` matchable
+        // inside the character class. Removing `preg_quote` would silently allow it.
+        $this->expectException(PsrInvalidArgumentException::class);
+        $this->cacheService->get('bad\\key');
+    }
+
+    public function testValidateKeyRejectsBraceCharacter(): void
+    {
+        $this->expectException(PsrInvalidArgumentException::class);
+        $this->cacheService->get('bad{key');
+    }
+
+    public function testValidateKeyRejectsParenCharacter(): void
+    {
+        $this->expectException(PsrInvalidArgumentException::class);
+        $this->cacheService->get('bad(key');
+    }
+
+    public function testSetMultipleWithZeroTtlUnindexesByOriginalKeysNotValues(): void
+    {
+        // Distinguish keys from values so a mutation like
+        // `foreach (array_keys($normalized) as $key)` → `foreach ($normalized as $key)`
+        // (which would iterate VALUES) gets caught.
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $sMembersCalls = [];
+        $this->redisMock->method('sMembers')->willReturnCallback(
+            function (string $key) use (&$sMembersCalls): array {
+                $sMembersCalls[] = $key;
+                return [];
+            }
+        );
+        $this->redisMock->method('del')->willReturn(1);
+
+        $this->cacheService->setMultiple(['key_one' => 'val_one', 'key_two' => 'val_two'], 0);
+
+        // unindexKey() looks up `TAGS:<the key>` — never `TAGS:<the value>`.
+        $this->assertContains('TAGS:key_one', $sMembersCalls);
+        $this->assertContains('TAGS:key_two', $sMembersCalls);
+        $this->assertNotContains('TAGS:val_one', $sMembersCalls);
+        $this->assertNotContains('TAGS:val_two', $sMembersCalls);
+    }
+
+    public function testSetMultipleReturnsFalseWhenExecReturnsNonArray(): void
+    {
+        // The `!is_array($results) || in_array(false, $results, true)` guard:
+        // mutating `||` to `&&` makes the first arm useless. Force exec()->false to expose it.
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->method('setex')->willReturnSelf();
+        $this->redisMock->method('exec')->willReturn(false);
+
+        $this->assertFalse(
+            $this->cacheService->setMultiple(['k1' => 'v1'], 60),
+            'setMultiple must report failure when exec() does not return an array.'
+        );
+    }
+
+    public function testSetTaggedWithNegativeTtlShortCircuitsToDelete(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('sMembers')->willReturn([]);
+        $this->redisMock->expects($this->exactly(2))->method('del')->willReturn(1);
+        $this->redisMock->expects($this->never())->method('sAdd');
+
+        $this->assertTrue($this->cacheService->setTagged('test-key', 'value', 'tag', -10));
+    }
+
+    public function testSetMultipleWithZeroTtlDeletesKeysAndSkipsWrites(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('sMembers')->willReturn([]);
+        $delCalls = [];
+        $this->redisMock->method('del')->willReturnCallback(
+            function (string|array $arg) use (&$delCalls): int {
+                $delCalls[] = $arg;
+                return 1;
+            }
+        );
+        $this->redisMock->expects($this->never())->method('setex');
+        $this->redisMock->expects($this->never())->method('mSet');
+        $this->redisMock->expects($this->never())->method('multi');
+
+        $this->assertTrue($this->cacheService->setMultiple(['k1' => 'v1', 'k2' => 'v2'], 0));
+
+        // Reverse-lookup cleanup per key (TAGS:k1, TAGS:k2), then a single bulk del.
+        $this->assertContains(['k1', 'k2'], $delCalls);
+    }
+
+    public function testSetMultipleWithNegativeTtlDeletesKeys(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('sMembers')->willReturn([]);
+        $this->redisMock->method('del')->willReturn(1);
+        $this->redisMock->expects($this->never())->method('setex');
+
+        $this->assertTrue($this->cacheService->setMultiple(['k1' => 'v1'], -5));
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: setTagged exec result semantics ([0] is the SET reply).
+    // -------------------------------------------------------------------
+
+    public function testSetTaggedReturnsFalseWhenSetFailsInPipeline(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->method('setex')->willReturnSelf();
+        $this->redisMock->method('sAdd')->willReturnSelf();
+        // exec returns [false (SET failed), true, true]
+        $this->redisMock->method('exec')->willReturn([false, true, true]);
+
+        $this->assertFalse($this->cacheService->setTagged('k', 'v', 't', 60));
+    }
+
+    public function testSetTaggedReturnsTrueWhenSetSucceedsEvenIfTagWritesAreNoOps(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->method('set')->willReturnSelf();
+        $this->redisMock->method('sAdd')->willReturnSelf();
+        // exec returns [true (SET ok), 0 (sAdd existing - no-op), 0]
+        // Only the SET return value (index 0) determines the return.
+        $this->redisMock->method('exec')->willReturn([true, 0, 0]);
+
+        $this->assertTrue($this->cacheService->setTagged('k', 'v', 't'));
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: phpredis return types — explicit (int) cast assertions.
+    // -------------------------------------------------------------------
+
+    public function testGetQueueLengthCoercesFalseToZero(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        // phpredis returns false on a missing/non-list key — the (int) cast normalises that to 0.
+        $this->redisMock->method('lLen')->willReturn(false);
+
+        $this->assertSame(0, $this->cacheService->getQueueLength('missing'));
+    }
+
+    public function testGetTagCardinalityCoercesFalseToZero(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('sCard')->willReturn(false);
+
+        $this->assertSame(0, $this->cacheService->getTagCardinality('missing'));
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: getSet must return numerically-indexed array (array_values).
+    // -------------------------------------------------------------------
+
+    public function testGetSetReturnsNumericallyIndexedArray(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        // Simulate a phpredis sMembers that returns a non-zero-indexed array.
+        $this->redisMock->method('sMembers')->willReturn([5 => 'a', 9 => 'b']);
+
+        $result = $this->cacheService->getSet('set');
+        $this->assertSame(['a', 'b'], $result, 'getSet must reindex the result via array_values');
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: getSorted continue branch (yields false but does NOT stop).
+    // -------------------------------------------------------------------
+
+    public function testGetSortedYieldsStoredFalseAndContinuesIteration(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('zRange')->willReturn(['m1', 'm2', 'm3']);
+        // m2's GET reply is false (could be stored-false or missing) — EXISTS disambiguates.
+        $this->redisMock->method('mGet')->willReturn(['v1', false, 'v3']);
+        $this->redisMock->method('exists')
+            ->with('m2')
+            ->willReturn(1);  // m2 exists → its `false` is real, yield and continue
+        $this->redisMock->expects($this->never())->method('zRem');
+
+        $items = iterator_to_array($this->cacheService->getSorted('zset', 3));
+        $this->assertSame(['m1' => 'v1', 'm2' => false, 'm3' => 'v3'], $items);
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: peek bulk return shape (non-empty array path).
+    // -------------------------------------------------------------------
+
+    public function testPeekMultipleReturnsArrayOfHeadItems(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->expects($this->once())
+            ->method('lRange')
+            ->with('queue', 0, 1)  // range=2 → lRange(0, 1)
+            ->willReturn(['a', 'b']);
+
+        $this->assertSame(['a', 'b'], $this->cacheService->peek('queue', 2));
+    }
+
+    public function testPeekMultipleReturnsNullWhenEmpty(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('lRange')->willReturn([]);
+
+        $this->assertNull($this->cacheService->peek('queue', 5));
     }
 
     private function clientWithInjectedRedis(Redis $redis): RapidCacheClient

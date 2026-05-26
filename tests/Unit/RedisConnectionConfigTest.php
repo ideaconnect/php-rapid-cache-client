@@ -102,4 +102,35 @@ class RedisConnectionConfigTest extends TestCase
 
         $this->assertSame(1000, $config->pipelineBatchSize);
     }
+
+    public function testDefaultsAreSafeForProduction(): void
+    {
+        $config = new RedisConnectionConfig(host: 'h');
+
+        // These defaults are load-bearing: documented in the constructor's docblock
+        // as "tuned for safe production behavior." Pin them so mutations are caught.
+        $this->assertSame(0, $config->database, 'default database must be 0 (no SELECT call)');
+        $this->assertSame(1.0, $config->connectTimeout, 'default connectTimeout must be 1.0s, never 0 ("wait forever")');
+        $this->assertSame(1.0, $config->readTimeout, 'default readTimeout must be 1.0s');
+        $this->assertFalse($config->persistent, 'default persistent must be false (opt-in for hot paths)');
+        $this->assertFalse($config->retryOnce, 'default retryOnce must be false (explicit opt-in)');
+    }
+
+    public function testPortBoundariesAreAccepted(): void
+    {
+        // Inclusive bounds: the validator must accept the extremes, not just reject
+        // outside them. Pins `<` / `>` so off-by-one mutants get killed.
+        $low = new RedisConnectionConfig(host: 'h', port: 1);
+        $high = new RedisConnectionConfig(host: 'h', port: 65535);
+
+        $this->assertSame(1, $low->port);
+        $this->assertSame(65535, $high->port);
+    }
+
+    public function testPipelineBatchSizeOfOneIsAccepted(): void
+    {
+        $config = new RedisConnectionConfig(host: 'h', pipelineBatchSize: 1);
+
+        $this->assertSame(1, $config->pipelineBatchSize);
+    }
 }
