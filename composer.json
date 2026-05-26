@@ -1,5 +1,5 @@
 {
-    "name": "gryfoss/rapid-cache-client",
+    "name": "idct/php-rapid-cache-client",
     "description": "Caching service",
     "type": "library",
     "license": "MIT",
@@ -19,21 +19,25 @@
     "require": {
         "php": "^8.2",
         "ext-igbinary": "*",
-        "ext-redis": "*"
+        "ext-redis": "*",
+        "psr/simple-cache": "^3.0"
+    },
+    "provide": {
+        "psr/simple-cache-implementation": "3.0"
     },
     "autoload": {
         "psr-4": {
-            "GryfOSS\\Cache\\": "src/"
+            "IDCT\\Cache\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "GryfOSS\\Tests\\Cache\\": "tests/"
+            "IDCT\\Tests\\Cache\\": "tests/"
         }
     },
     "scripts": {
-        "redis:start": "docker compose up -d valkey",
-        "redis:stop": "docker compose down",
+        "redis:start": "docker compose -f features/docker/docker-compose.yml up -d valkey",
+        "redis:stop": "docker compose -f features/docker/docker-compose.yml down",
         "redis:wait": "sleep 10",
         "test:unit": [
             "@redis:start",
@@ -47,24 +51,62 @@
             "./vendor/phpunit/phpunit/phpunit --no-coverage",
             "@redis:stop"
         ],
-        "test:functional": [
+        "test:bdd": [
             "@redis:start",
             "@redis:wait",
-            "./vendor/bin/behat",
+            "./vendor/bin/behat --strict --no-interaction",
             "@redis:stop"
         ],
         "test": [
             "composer install",
             "@test:unit",
-            "@test:functional"
+            "@test:bdd"
         ],
-        "fix": "./vendor/friendsofphp/php-cs-fixer/php-cs-fixer fix --allow-risky=yes"
+        "test:connection": [
+            "@redis:start",
+            "@redis:wait",
+            "docker exec rapid-cache-client-valkey valkey-cli ping",
+            "@redis:stop"
+        ],
+        "benchmark": [
+            "@redis:start",
+            "@redis:wait",
+            "cd benchmark && php bin/benchmark.php --adapter=all --items=100000 --type=both --host=localhost --port=6380",
+            "@redis:stop"
+        ],
+        "benchmark:basic": [
+            "@redis:start",
+            "@redis:wait",
+            "cd benchmark && php bin/benchmark.php --adapter=all --items=100000 --type=basic --host=localhost --port=6380",
+            "@redis:stop"
+        ],
+        "benchmark:tagged": [
+            "@redis:start",
+            "@redis:wait",
+            "cd benchmark && php bin/benchmark.php --adapter=all --items=100000 --type=tagged --host=localhost --port=6380",
+            "@redis:stop"
+        ],
+        "benchmark:quick": [
+            "@redis:start",
+            "@redis:wait",
+            "cd benchmark && php bin/benchmark.php --adapter=all --items=10000 --type=both --host=localhost --port=6380",
+            "@redis:stop"
+        ],
+        "clean": [
+            "docker compose -f features/docker/docker-compose.yml down -v",
+            "docker system prune -f"
+        ],
+        "fix": "./vendor/friendsofphp/php-cs-fixer/php-cs-fixer fix --allow-risky=yes",
+        "analyse": "./vendor/bin/phpstan analyse --memory-limit=512M"
     },
     "require-dev": {
-        "phpunit/phpunit": "^9.0",
-        "php-mock/php-mock": "^2.3",
-        "php-mock/php-mock-phpunit": "^2.6",
-        "friendsofphp/php-cs-fixer": "^2.17",
-        "behat/behat": "^3.8"
+        "phpunit/phpunit": "^11.5",
+        "php-mock/php-mock": "^2.7",
+        "php-mock/php-mock-phpunit": "^2.15",
+        "friendsofphp/php-cs-fixer": "^3.95",
+        "behat/behat": "^3.31",
+        "phpstan/phpstan": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpstan/phpstan-phpunit": "^2.0"
     }
 }

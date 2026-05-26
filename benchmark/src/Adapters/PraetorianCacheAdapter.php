@@ -6,7 +6,7 @@ namespace Praetorian\CacheBenchmark\Adapters;
 
 use Praetorian\CacheBenchmark\CacheAdapterInterface;
 use Praetorian\CacheBenchmark\ComplexTestObject;
-use GryfOSS\Cache\RapidCacheClient;
+use IDCT\Cache\RapidCacheClient;
 
 class PraetorianCacheAdapter implements CacheAdapterInterface
 {

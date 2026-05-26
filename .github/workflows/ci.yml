@@ -1,10 +1,10 @@
-name: Test
+name: CI
 
 on:
   push:
-    branches: [ main, updated ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, updated ]
+    branches: [ main ]
 
 jobs:
   tests:
@@ -12,11 +12,11 @@ jobs:
 
     strategy:
       matrix:
-        php-version: ['8.2', '8.3', '8.4']
+        php-version: ['8.2', '8.5']
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
@@ -81,6 +81,9 @@ jobs:
 
     - name: Install dependencies
       run: composer install --prefer-dist --no-progress
+
+    - name: Static analysis (PHPStan)
+      run: composer analyse -- --no-progress
 
     - name: Verify Redis Connection
       env:
@@ -159,6 +162,15 @@ jobs:
         fi
 
         echo "✅ Coverage requirement met: Methods ${METHODS_COVERAGE}%, Lines ${LINES_COVERAGE}%"
+
+    - name: Upload coverage to Codecov
+      if: github.event_name != 'pull_request'
+      uses: codecov/codecov-action@v5
+      with:
+        files: ./coverage.xml
+        flags: php-${{ matrix.php-version }}
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: false
 
     - name: Run Functional Tests (Behat)
       env:

@@ -44,8 +44,8 @@ To run the same tests locally:
 # Unit tests with coverage
 composer test:unit
 
-# Functional tests
-composer test:functional
+# BDD (Behat) tests
+composer test:bdd
 
 # All tests
 composer test

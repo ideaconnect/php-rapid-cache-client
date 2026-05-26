@@ -2,76 +2,135 @@
 
 declare(strict_types=1);
 
-namespace GryfOSS\Cache;
+namespace IDCT\Cache;
 
+use DateInterval;
+use DateTimeImmutable;
 use Generator;
-use InvalidArgumentException;
+use IDCT\Cache\Exception\CacheException;
+use IDCT\Cache\Exception\InvalidArgumentException;
 use Redis;
+use RedisException;
+
+use function is_array;
+use function is_string;
+use function preg_match;
 use function sprintf;
 
 /**
- * High-performance Redis-based cache client implementing CacheServiceInterface.
+ * High-performance Redis-based cache client.
  *
- * This class provides a comprehensive caching solution with support for:
- * - Basic cache operations (get, set, delete, clear)
- * - Tagging system for grouping cache entries
- * - Queue operations for FIFO processing
- * - Set operations for unique collections
- * - Sorted sets with scoring
- * - Atomic increment/decrement operations
- * - TTL support with validation
- * - Automatic reconnection handling
+ * Implements the PSR-16 Simple Cache contract while exposing additional
+ * features: tagging, queues, sets, sorted sets, and atomic counters.
  */
 class RapidCacheClient implements CacheServiceInterface
 {
-    const DEFAULT_REDIS_PORT = 6139;
-    const MIN_TTL = 1;
-    const MAX_TTL = 30 * 24 * 3600;
+    public const DEFAULT_REDIS_PORT = 6379;
 
     private const TAGS_SET_NAME_PREFIX = 'TAGS:';
+    private const TAG_KEY_SET_PREFIX = 'TAG:';
 
-    /** @var Redis|null */
-    private $redis;
+    /** Reserved characters that PSR-16 forbids in cache keys. */
+    private const RESERVED_KEY_CHARS = '{}()/\\@:';
+
+    private ?Redis $redis = null;
+    private RedisConnectionConfig $config;
+    private bool $retrying = false;
 
     /**
-     * Constructor for RapidCacheClient.
+     * Accepts either the legacy positional form (host, port, prefix) or a
+     * pre-built {@see RedisConnectionConfig} for full control over auth,
+     * database, timeouts, and persistence.
      *
-     * @param string $host Redis server hostname or IP address
-     * @param int|null $port Redis server port (default: 6379)
-     * @param string|null $prefix Optional key prefix for namespacing
+     * No connection is opened here — the first cache operation triggers a
+     * lazy connect via {@see reconnect()}.
+     *
+     * @param string|RedisConnectionConfig $hostOrConfig Either a hostname (legacy form)
+     *                                                   or a full connection config
+     * @param int|null                     $port         TCP port; ignored when $hostOrConfig
+     *                                                   is a RedisConnectionConfig
+     * @param string|null                  $prefix       Key prefix; ignored when $hostOrConfig
+     *                                                   is a RedisConnectionConfig
+     *
+     * @throws \InvalidArgumentException When the legacy form produces an invalid
+     *                                   {@see RedisConnectionConfig} (empty host, port
+     *                                   out of range, etc.)
      */
     public function __construct(
-        private string $host,
-        private ?int $port = self::DEFAULT_REDIS_PORT,
-        private ?string $prefix = null
+        string|RedisConnectionConfig $hostOrConfig,
+        ?int $port = self::DEFAULT_REDIS_PORT,
+        ?string $prefix = null
     ) {
-
+        if ($hostOrConfig instanceof RedisConnectionConfig) {
+            $this->config = $hostOrConfig;
+            return;
+        }
+        $this->config = new RedisConnectionConfig(
+            host: $hostOrConfig,
+            port: $port ?? self::DEFAULT_REDIS_PORT,
+            prefix: $prefix,
+        );
     }
 
     /**
-     * Establishes or re-establishes connection to Redis server.
-     * Configures serialization options and key prefix.
+     * Opens a fresh Redis connection from the stored config and applies all
+     * options (auth, database, timeouts, prefix, igbinary serializer).
      *
-     * @return self Fluent interface
+     * Wraps any connection failure — including engine-level errors that aren't
+     * RedisException — into a {@see CacheException}. Pure-PHP coding bugs
+     * ({@see \Error}) are re-thrown unchanged so they aren't masked.
+     *
+     * @throws CacheException When connection or option-setup fails for any
+     *                        non-engine reason.
      */
-    protected function reconnect()
+    protected function reconnect(): Redis
     {
-        $redis = $this->createRedisInstance();
-        $redis->connect($this->host, $this->port);
-        if ($this->prefix) {
-            $redis->setOption(Redis::OPT_PREFIX, $this->prefix);
+        $config = $this->config;
+        try {
+            $redis = $this->createRedisInstance();
+            if ($config->persistent) {
+                $redis->pconnect(
+                    $config->host,
+                    $config->port,
+                    $config->connectTimeout,
+                    $config->persistentId
+                );
+            } else {
+                $redis->connect($config->host, $config->port, $config->connectTimeout);
+            }
+            if ($config->readTimeout > 0) {
+                $redis->setOption(Redis::OPT_READ_TIMEOUT, (string) $config->readTimeout);
+            }
+            if ($config->password !== null && $config->password !== '') {
+                $redis->auth($config->password);
+            }
+            if ($config->database !== 0) {
+                $redis->select($config->database);
+            }
+            if ($config->prefix !== null && $config->prefix !== '') {
+                $redis->setOption(Redis::OPT_PREFIX, $config->prefix);
+            }
+            $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY);
+        } catch (\Error $e) {
+            // Engine-level errors (e.g. missing class, type errors) are bugs,
+            // not storage failures — let them propagate unchanged.
+            throw $e;
+        } catch (\Throwable $e) {
+            throw new CacheException(
+                sprintf('Unable to connect to Redis at %s:%d: %s', $config->host, $config->port, $e->getMessage()),
+                0,
+                $e
+            );
         }
-        $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY);
         $this->redis = $redis;
 
-        return $this;
+        return $redis;
     }
 
     /**
-     * Factory method to create Redis instance.
-     * Can be overridden for testing or custom Redis configurations.
-     *
-     * @return Redis New Redis instance
+     * Factory hook for the underlying phpredis instance. Override in tests or
+     * subclasses to inject a mock/decorated Redis without touching the
+     * connection lifecycle.
      */
     protected function createRedisInstance(): Redis
     {
@@ -79,419 +138,989 @@ class RapidCacheClient implements CacheServiceInterface
     }
 
     /**
-     * Gets active Redis connection, reconnecting if necessary.
+     * Returns the live Redis connection, reconnecting on demand if the cached
+     * one was lost (e.g., killed by a {@see RedisException} in {@see wrap()}).
      *
-     * @return Redis Active Redis connection
+     * @throws CacheException When the lazy reconnect fails.
      */
-    protected function getRedis() : Redis
+    protected function getRedis(): Redis
     {
         if ($this->redis === null || !$this->redis->isConnected()) {
-            $this->reconnect();
+            return $this->reconnect();
         }
         return $this->redis;
     }
 
+    // -------------------------------------------------------------------
+    // PSR-16 CacheInterface
+    // -------------------------------------------------------------------
+
     /**
-     * {@inheritdoc}
+     * Retrieves a value from the cache.
+     *
+     * Distinguishes a stored literal `false` from a missing key: when GET
+     * returns false, an EXISTS probe disambiguates (one extra round-trip on
+     * the miss-or-false case, none on the common hit path).
+     *
+     * @param mixed $default Returned only when the key is absent — a stored
+     *                       `false` always wins over $default.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key violates PSR-16
+     *         (empty or contains reserved characters).
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function get(string $key, mixed $default = null): mixed
+    {
+        $this->validateKey($key);
+        return $this->wrap(function () use ($key, $default) {
+            $redis = $this->getRedis();
+            $value = $redis->get($key);
+            if ($value !== false) {
+                return $value;
+            }
+            return $redis->exists($key) ? false : $default;
+        });
+    }
+
+    /**
+     * Stores a value, optionally with a TTL.
+     *
+     * TTL semantics:
+     * - `null`     — persist indefinitely (Redis SET).
+     * - positive   — expire after N seconds (Redis SETEX), or after the
+     *                resolved interval if a DateInterval is given.
+     * - `0` or negative — treated as immediate expiry: the key is deleted and
+     *                any tag associations are cleaned up. Returns true.
+     *
+     * Values are stored igbinary-serialized (configured at connect time), so
+     * any serializable PHP value round-trips losslessly.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
+    {
+        $this->validateKey($key);
+        $seconds = $this->normalizeTtl($ttl);
+        return $this->wrap(function () use ($key, $value, $seconds) {
+            $redis = $this->getRedis();
+
+            if ($seconds !== null && $seconds <= 0) {
+                $this->unindexKey($key);
+                $redis->del($key);
+                return true;
+            }
+
+            if ($seconds !== null) {
+                return (bool) $redis->setex($key, $seconds, $value);
+            }
+
+            return (bool) $redis->set($key, $value);
+        });
+    }
+
+    /**
+     * Deletes a key and removes it from every tag set it belonged to.
+     *
+     * Idempotent: returns true whether or not the key existed.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function delete(string $key): bool
+    {
+        $this->validateKey($key);
+        return $this->wrap(function () use ($key) {
+            $this->unindexKey($key);
+            $this->getRedis()->del($key);
+            return true;
+        });
+    }
+
+    /**
+     * Clears the cache.
+     *
+     * With a prefix configured: scans for `<prefix>*` and UNLINKs in batches,
+     * leaving keys from other apps that share the Redis database untouched.
+     * The SCAN/UNLINK pass disables auto-prefixing so it can operate on raw
+     * keys, then restores the prior prefix and SCAN options in a `finally`.
+     *
+     * Without a prefix: FLUSHDB — wipes the entire database.
+     *
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function clear(): bool
+    {
+        return $this->wrap(function () {
+            $redis = $this->getRedis();
+            $prefix = $this->config->prefix;
+
+            if ($prefix === null || $prefix === '') {
+                $redis->flushDb();
+                return true;
+            }
+
+            // Disable phpredis auto-prefixing while we SCAN/UNLINK with raw keys.
+            $priorScan = $redis->getOption(Redis::OPT_SCAN);
+            $redis->setOption(Redis::OPT_PREFIX, '');
+            try {
+                $redis->setOption(Redis::OPT_SCAN, Redis::SCAN_RETRY);
+                $iterator = null;
+                do {
+                    $keys = $redis->scan($iterator, $prefix . '*', 1000);
+                    if ($keys === false) {
+                        break;
+                    }
+                    if ($keys !== []) {
+                        $redis->unlink($keys);
+                    }
+                } while ($iterator > 0);
+            } finally {
+                $redis->setOption(Redis::OPT_PREFIX, $prefix);
+                $redis->setOption(Redis::OPT_SCAN, $priorScan);
+            }
+
+            return true;
+        });
+    }
+
+    /**
+     * Bulk get via a single MGET round-trip.
+     *
+     * Unlike {@see get()}, this does NOT disambiguate stored-`false` from
+     * missing — both yield $default. Use {@see get()} per key when that
+     * distinction matters.
+     *
+     * @return array<string, mixed> Keyed by the originally requested keys, in
+     *                              input order; missing keys map to $default.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If any key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function getMultiple(iterable $keys, mixed $default = null): iterable
+    {
+        $normalized = [];
+        foreach ($keys as $key) {
+            $this->validateKey($key);
+            $normalized[] = $key;
+        }
+
+        if ($normalized === []) {
+            return [];
+        }
+
+        return $this->wrap(function () use ($normalized, $default) {
+            $values = $this->getRedis()->mGet($normalized);
+            $result = [];
+            foreach ($normalized as $i => $key) {
+                $value = $values[$i] ?? false;
+                $result[$key] = $value === false ? $default : $value;
+            }
+            return $result;
+        });
+    }
+
+    /**
+     * Bulk store.
+     *
+     * - No TTL: single MSET round-trip.
+     * - With TTL: pipelined SETEX (one MULTI/EXEC) so the whole batch goes in
+     *   one network round-trip. Returns true only if every SETEX succeeded.
+     * - TTL ≤ 0: bulk DELETE + tag cleanup, returns true.
+     *
+     * @param iterable<mixed> $values Map of key → value.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If any key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
+    {
+        $normalized = [];
+        foreach ($values as $key => $value) {
+            $stringKey = is_string($key) ? $key : (string) $key;
+            $this->validateKey($stringKey);
+            $normalized[$stringKey] = $value;
+        }
+        if ($normalized === []) {
+            return true;
+        }
+
+        $seconds = $this->normalizeTtl($ttl);
+        return $this->wrap(function () use ($normalized, $seconds) {
+            $redis = $this->getRedis();
+
+            if ($seconds !== null && $seconds <= 0) {
+                foreach (array_keys($normalized) as $key) {
+                    $this->unindexKey($key);
+                }
+                $redis->del(array_keys($normalized));
+                return true;
+            }
+
+            if ($seconds === null) {
+                return (bool) $redis->mSet($normalized);
+            }
+
+            $redis->multi(Redis::PIPELINE);
+            foreach ($normalized as $key => $value) {
+                $redis->setex($key, $seconds, $value);
+            }
+            $results = $redis->exec();
+            return is_array($results) && !in_array(false, $results, true);
+        });
+    }
+
+    /**
+     * Bulk delete, with tag cleanup for each key.
+     *
+     * Idempotent: returns true regardless of which keys actually existed.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If any key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function deleteMultiple(iterable $keys): bool
+    {
+        $normalized = [];
+        foreach ($keys as $key) {
+            $this->validateKey($key);
+            $normalized[] = $key;
+        }
+        if ($normalized === []) {
+            return true;
+        }
+
+        return $this->wrap(function () use ($normalized) {
+            foreach ($normalized as $key) {
+                $this->unindexKey($key);
+            }
+            $this->getRedis()->del($normalized);
+            return true;
+        });
+    }
+
+    /**
+     * Checks key existence via a single EXISTS call.
+     *
+     * Per PSR-16, this is a fast probe and the result is not a strong
+     * guarantee — a concurrent expiry between `has()` and a follow-up `get()`
+     * is always possible.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function has(string $key): bool
+    {
+        $this->validateKey($key);
+        return $this->wrap(fn() => (bool) $this->getRedis()->exists($key));
+    }
+
+    // -------------------------------------------------------------------
+    // Tagging
+    // -------------------------------------------------------------------
+
+    /**
+     * Stores a value and atomically associates it with a tag.
+     *
+     * Single MULTI/EXEC pipeline: the SET/SETEX and both index writes (the
+     * tag → keys set and the reverse keys → tags set) commit together.
+     *
+     * TTL ≤ 0 short-circuits to {@see set()}'s delete branch — tagging a
+     * key you're about to delete makes no sense, so tagging is skipped.
+     *
+     * Tags themselves are validated as PSR-16 keys, so they cannot contain
+     * reserved characters.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key or $tag is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function setTagged(string $key, mixed $value, string $tag, null|int|DateInterval $ttl = null): bool
+    {
+        $this->validateKey($key);
+        $this->validateKey($tag);
+        $seconds = $this->normalizeTtl($ttl);
+
+        if ($seconds !== null && $seconds <= 0) {
+            return $this->set($key, $value, $ttl);
+        }
+
+        return $this->wrap(function () use ($key, $value, $tag, $seconds) {
+            $redis = $this->getRedis();
+            $redis->multi(Redis::PIPELINE);
+            if ($seconds === null) {
+                $redis->set($key, $value);
+            } else {
+                $redis->setex($key, $seconds, $value);
+            }
+            $redis->sAdd(self::TAG_KEY_SET_PREFIX . $tag, $key);
+            $redis->sAdd(self::TAGS_SET_NAME_PREFIX . $key, $tag);
+            $results = $redis->exec();
+            return is_array($results) && $results[0] !== false;
+        });
+    }
+
+    /**
+     * Iterates over all values currently associated with $tag.
+     *
+     * **Side effects on iteration**: tag entries whose underlying key has
+     * expired/been deleted are pruned from the tag set during iteration. The
+     * cleanup is collected in-memory and flushed via a pipelined MULTI/EXEC
+     * in a `finally` block — so even an early `break` from the loop will
+     * clean up whatever was inspected so far. Un-inspected entries are left
+     * for the next call.
+     *
+     * Cleanup failures are swallowed (best-effort) so they don't mask the
+     * primary exception path.
+     *
+     * @return Generator<string, mixed> Yielding cacheKey => storedValue.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $tag is invalid.
+     * @throws CacheException On Redis transport/storage failures during the
+     *         primary read phase.
      */
     public function getTagged(string $tag): Generator
     {
-        $redis = $this->getRedis();
-        $tagHash = 'TAG:' . $tag;
-        $members = $redis->hGetAll($tagHash);
+        $this->validateKey($tag);
+        $stale = [];
+        try {
+            $redis = $this->getRedis();
+            $tagSet = self::TAG_KEY_SET_PREFIX . $tag;
+            $members = $redis->sMembers($tagSet);
 
-        if (empty($members)) {
-            yield from [];
-            return;
-        }
+            if (!is_array($members) || $members === []) {
+                return;
+            }
 
-        $anyResults = false;
+            $values = $redis->mGet($members);
 
-        foreach ($members as $member => $cachedValue) {
-            // Check if the original key still exists (handles TTL expiration)
-            if ($redis->exists($member)) {
-                $anyResults = true;
-                yield $member => $cachedValue;
-            } else {
-                // Remove expired key from tag hash
-                $redis->hDel($tagHash, $member);
+            foreach ($members as $i => $member) {
+                $value = $values[$i] ?? false;
+                if ($value !== false) {
+                    yield $member => $value;
+                } else {
+                    $stale[] = $member;
+                }
+            }
+        } catch (RedisException $e) {
+            throw $this->toCacheException($e);
+        } finally {
+            if ($stale !== []) {
+                try {
+                    $redis = $this->getRedis();
+                    $tagSet = self::TAG_KEY_SET_PREFIX . $tag;
+                    $redis->multi(Redis::PIPELINE);
+                    foreach ($stale as $member) {
+                        $redis->sRem($tagSet, $member);
+                        $redis->sRem(self::TAGS_SET_NAME_PREFIX . $member, $tag);
+                    }
+                    $redis->exec();
+                } catch (RedisException) {
+                    // Best-effort cleanup — don't shadow the primary exception.
+                }
             }
         }
-
-        if (!$anyResults) {
-            yield from [];
-            return;
-        }
     }
 
     /**
-     * {@inheritdoc}
-     */
-    public function get(string $key): mixed
-    {
-        $redis = $this->getRedis();
-        $value = $redis->get($key);
-
-        if (!$value) {
-            return null;
-        }
-
-        return $value;
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function delete(string $key, bool $skipTagsRemoval = false): self
-    {
-        $redis = $this->getRedis();
-
-        if ($skipTagsRemoval !== true) {
-            $this->removeKeyFromTagHashes($key);
-        }
-
-        $redis->del($key);
-
-        return $this;
-    }
-
-    /**
-     * Removes a cache key from all associated tag hashes.
-     * Cleans up reverse lookup sets used for tag management.
+     * Adds a tag association to an existing key.
      *
-     * @param string $key The cache key to remove from tag associations
-     * @return self Fluent interface
+     * The key must already exist; tagging a missing key would create a ghost
+     * association that {@see getTagged()} would later have to clean up.
+     *
+     * Race window: the EXISTS + SADD pair is not atomic. A concurrent
+     * `delete($key)` between the two can still leave a ghost membership in
+     * the tag set — {@see getTagged()} heals such entries on read.
+     *
+     * @return self for chaining.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key or $tag is
+     *         invalid, or if $key does not exist.
+     * @throws CacheException On Redis transport/storage failures.
      */
-    private function removeKeyFromTagHashes(string $key): self
+    public function tag(string $key, string $tag): self
+    {
+        $this->validateKey($key);
+        $this->validateKey($tag);
+        return $this->wrap(function () use ($key, $tag) {
+            $redis = $this->getRedis();
+            if (!$redis->exists($key)) {
+                throw new InvalidArgumentException(sprintf('Can\'t tag non-existing key "%s"', $key));
+            }
+            $redis->multi(Redis::PIPELINE);
+            $redis->sAdd(self::TAG_KEY_SET_PREFIX . $tag, $key);
+            $redis->sAdd(self::TAGS_SET_NAME_PREFIX . $key, $tag);
+            $redis->exec();
+            return $this;
+        });
+    }
+
+    /**
+     * Removes a single tag association from a key.
+     *
+     * Symmetric to {@see tag()}: removes the key from the tag's set AND the
+     * tag from the key's reverse-lookup set. The underlying cache value is
+     * left in place — use {@see delete()} to remove it entirely.
+     *
+     * Idempotent.
+     *
+     * @return self for chaining.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key or $tag is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function untag(string $key, string $tag): self
+    {
+        $this->validateKey($key);
+        $this->validateKey($tag);
+        return $this->wrap(function () use ($key, $tag) {
+            $redis = $this->getRedis();
+            $redis->sRem(self::TAG_KEY_SET_PREFIX . $tag, $key);
+            $redis->sRem(self::TAGS_SET_NAME_PREFIX . $key, $tag);
+            return $this;
+        });
+    }
+
+    /**
+     * Deletes every key currently associated with $tag, plus all related index
+     * entries (the tag set itself and each key's reverse-lookup set).
+     *
+     * Implemented as a two-phase pipelined cascade:
+     *  1. One MULTI/EXEC fetches each affected key's reverse tag list (so we
+     *     know which OTHER tag sets need to drop this key too).
+     *  2. A second MULTI/EXEC executes all the cleanup writes (sRem from
+     *     other tag sets, del each reverse-lookup set, del the keys
+     *     themselves, del the original tag set).
+     *
+     * Idempotent: returns true even when the tag is unknown or empty.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $tag is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function clearByTag(string $tag): bool
+    {
+        $this->validateKey($tag);
+        return $this->wrap(function () use ($tag) {
+            $redis = $this->getRedis();
+            $tagSet = self::TAG_KEY_SET_PREFIX . $tag;
+            $members = $redis->sMembers($tagSet);
+
+            if (!is_array($members) || $members === []) {
+                $redis->del($tagSet);
+                return true;
+            }
+
+            // Phase 1 (pipelined): fetch each member's reverse tag list.
+            $redis->multi(Redis::PIPELINE);
+            foreach ($members as $member) {
+                $redis->sMembers(self::TAGS_SET_NAME_PREFIX . $member);
+            }
+            $reverseLookups = $redis->exec();
+            if (!is_array($reverseLookups)) {
+                $reverseLookups = [];
+            }
+
+            // Phase 2 (pipelined): cascade all cleanup writes.
+            $redis->multi(Redis::PIPELINE);
+            foreach ($members as $i => $member) {
+                $otherTags = is_array($reverseLookups[$i] ?? null) ? $reverseLookups[$i] : [];
+                foreach ($otherTags as $otherTag) {
+                    if ($otherTag === $tag) {
+                        // We're about to del() the whole tag set; skip the redundant sRem.
+                        continue;
+                    }
+                    $redis->sRem(self::TAG_KEY_SET_PREFIX . $otherTag, $member);
+                }
+                $redis->del(self::TAGS_SET_NAME_PREFIX . $member);
+            }
+            $redis->del($members);
+            $redis->del($tagSet);
+            $redis->exec();
+
+            return true;
+        });
+    }
+
+    /**
+     * Removes a key from every tag set it belongs to and deletes its reverse
+     * lookup. Caller is responsible for wrapping in error translation.
+     */
+    private function unindexKey(string $key): void
     {
         $redis = $this->getRedis();
         $reverseLookupKey = self::TAGS_SET_NAME_PREFIX . $key;
         $tags = $redis->sMembers($reverseLookupKey);
 
+        if (!is_array($tags) || $tags === []) {
+            $redis->del($reverseLookupKey);
+            return;
+        }
+
+        $redis->multi(Redis::PIPELINE);
         foreach ($tags as $tag) {
-            $tagHash = 'TAG:' . $tag;
-            $redis->hDel($tagHash, $key);
+            $redis->sRem(self::TAG_KEY_SET_PREFIX . $tag, $key);
         }
-
-        // Clean up the reverse lookup set
         $redis->del($reverseLookupKey);
-
-        return $this;
+        $redis->exec();
     }
 
-    /**
-     * {@inheritdoc}
-     */
-    public function untag(string $key, string $tag): self
-    {
-        $redis = $this->getRedis();
-        $tagHash = 'TAG:' . $tag;
-
-        // Remove from tag hash
-        $redis->hDel($tagHash, $key);
-
-        // Remove from reverse lookup set
-        $redis->sRem(self::TAGS_SET_NAME_PREFIX . $key, $tag);
-
-        return $this;
-    }
+    // -------------------------------------------------------------------
+    // Queues
+    // -------------------------------------------------------------------
 
     /**
-     * {@inheritdoc}
+     * Appends a value to the tail of a Redis list used as a FIFO queue.
      *
-     * @throws InvalidArgumentException
-     */
-    public function set(string $key, mixed $value, ?string $tag = null, ?int $ttl = null, ?int $score = null): self
-    {
-        if (null === $value) {
-            throw new InvalidArgumentException('Can\'t set null item');
-        }
-
-        if (null !== $ttl) {
-            if ($ttl < static::MIN_TTL || $ttl > static::MAX_TTL) {
-                throw new InvalidArgumentException(
-                    sprintf(
-                        'TTL must be a value between (including) %d and %d. Provided: %d.',
-                        static::MIN_TTL,
-                        static::MAX_TTL,
-                        $ttl
-                    )
-                );
-            }
-        }
-
-        $redis = $this->getRedis();
-
-        if (null !== $ttl) {
-            $redis->setex($key, $ttl, $value);
-        } else {
-            $redis->set($key, $value);
-        }
-
-        if ($tag) {
-            $tagHash = 'TAG:' . $tag;
-
-            // Store the value in the tag hash for quick retrieval
-            $redis->hSet($tagHash, $key, $value);
-
-            // Keep reverse lookup for cleanup purposes
-            $redis->sAdd(self::TAGS_SET_NAME_PREFIX.$key, $tag);
-        }
-
-        return $this;
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function clear(): self
-    {
-        $redis = $this->getRedis();
-        $redis->flushAll();
-
-        return $this;
-    }
-
-    /**
-     * {@inheritdoc}
+     * Pairs with {@see pop()} (head-removal) to form a producer/consumer FIFO.
+     * Null values are rejected because phpredis cannot distinguish a stored
+     * null from "list is empty" on pop.
      *
-     * @throws InvalidArgumentException
+     * @return self for chaining.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $queue is invalid
+     *         or $value is null.
+     * @throws CacheException On Redis transport/storage failures.
      */
     public function enqueue(string $queue, mixed $value): self
     {
+        $this->validateKey($queue);
         if (null === $value) {
             throw new InvalidArgumentException('Can\'t enqueue null item');
         }
-
-        $redis = $this->getRedis();
-        $redis->rPush($queue, $value);
-        return $this;
+        return $this->wrap(function () use ($queue, $value) {
+            $this->getRedis()->rPush($queue, $value);
+            return $this;
+        });
     }
 
     /**
-     * {@inheritdoc}
+     * Removes and returns item(s) from the head of the queue (FIFO).
+     *
+     * - `$range === 1` (default): returns the single popped value, or `null`
+     *   when the queue is empty.
+     * - `$range > 1`: returns an array of up to `$range` items (whatever was
+     *   available), or `null` when the queue is empty.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $queue is invalid
+     *         or $range < 1.
+     * @throws CacheException On Redis transport/storage failures.
      */
     public function pop(string $queue, int $range = 1): mixed
     {
-        $redis = $this->getRedis();
-        if ($range !== 1) {
-            $items = $redis->lPop($queue, $range);
-            return $items === false ? null : $items;
+        $this->validateKey($queue);
+        if ($range < 1) {
+            throw new InvalidArgumentException('Range must be greater than or equal to 1.');
         }
-
-        $item = $redis->lPop($queue);
-        return $item === false ? null : $item;
+        return $this->wrap(function () use ($queue, $range) {
+            $redis = $this->getRedis();
+            if ($range !== 1) {
+                $items = $redis->lPop($queue, $range);
+                return $items === false ? null : $items;
+            }
+            $item = $redis->lPop($queue);
+            return $item === false ? null : $item;
+        });
     }
 
     /**
-     * Retrieves item(s) from the beginning of a queue without removing them.
+     * Inspects item(s) at the head of the queue WITHOUT removing them.
+     *
+     * Same return shape as {@see pop()} (single value vs array based on
+     * `$range`), but the queue is left unchanged.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $queue is invalid
+     *         or $range < 1.
+     * @throws CacheException On Redis transport/storage failures.
      */
     public function peek(string $queue, int $range = 1): mixed
     {
-        $redis = $this->getRedis();
-
-        if ($range !== 1) {
-            $items = $redis->lRange($queue, 0, $range - 1);
-            return empty($items) ? null : $items;
+        $this->validateKey($queue);
+        if ($range < 1) {
+            throw new InvalidArgumentException('Range must be greater than or equal to 1.');
         }
-
-        $items = $redis->lRange($queue, 0, 0);
-        return empty($items) ? null : $items[0];
+        return $this->wrap(function () use ($queue, $range) {
+            $redis = $this->getRedis();
+            if ($range !== 1) {
+                $items = $redis->lRange($queue, 0, $range - 1);
+                return !is_array($items) || $items === [] ? null : $items;
+            }
+            $items = $redis->lRange($queue, 0, 0);
+            return !is_array($items) || $items === [] ? null : $items[0];
+        });
     }
 
     /**
-     * {@inheritdoc}
+     * Returns the entire queue contents as a list (head-first), without
+     * removing anything.
      *
-     * @throws InvalidArgumentException
-     */
-    public function tag(string $key, string $tag, ?int $score = null): self
-    {
-        $value = $this->get($key);
-        if (null === $value) {
-            throw new InvalidArgumentException(sprintf('Can\'t tag non-existing key "%s"', $key));
-        }
-
-        $redis = $this->getRedis();
-        $tagHash = 'TAG:' . $tag;
-
-        // Store the value in the tag hash
-        $redis->hSet($tagHash, $key, $value);
-
-        // Keep reverse lookup for cleanup purposes
-        $redis->sAdd(self::TAGS_SET_NAME_PREFIX.$key, $tag);
-
-        return $this;
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function clearByTag(string $tag): CacheServiceInterface
-    {
-        $redis = $this->getRedis();
-        $tagHash = 'TAG:' . $tag;
-        $members = $redis->hKeys($tagHash);
-
-        foreach ($members as $member) {
-            $this->delete($member);
-        }
-
-        // Clean up the tag hash
-        $redis->del($tagHash);
-
-        return $this;
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function getCardinality(string $set, bool $sortedSet = false): int
-    {
-        $redis = $this->getRedis();
-
-        // For tagged sets (prefixed with TAG:), use the hash length
-        if (str_starts_with($set, 'TAG:')) {
-            return intval($redis->hLen($set));
-        }
-
-        // For other sets, use the original logic
-        if ($sortedSet) {
-            return intval($redis->zCard($set));
-        }
-
-        return intval($redis->sCard($set));
-    }
-
-    /**
-     * {@inheritdoc}
+     * Beware: O(N) and pulls the whole list into memory — for large queues
+     * prefer {@see peek()} with a bounded range.
+     *
+     * @return array<int, mixed>
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $queue is invalid.
+     * @throws CacheException On Redis transport/storage failures.
      */
     public function getQueue(string $queue): array
     {
-        $redis = $this->getRedis();
-
-        $collected = [];
-        $len = $this->getQueueLength($queue);
-        for ($i = 0; $i < $len; $i++) {
-            $item = $redis->rPopLPush($queue, $queue);
-            $collected[] = $item;
-        }
-
-        return $collected;
+        $this->validateKey($queue);
+        return $this->wrap(function () use ($queue) {
+            $items = $this->getRedis()->lRange($queue, 0, -1);
+            return is_array($items) ? $items : [];
+        });
     }
 
     /**
-     * {@inheritdoc}
+     * Returns the number of items currently in the queue (O(1) LLEN).
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $queue is invalid.
+     * @throws CacheException On Redis transport/storage failures.
      */
     public function getQueueLength(string $queue): int
     {
-        $redis = $this->getRedis();
-        return intval($redis->lLen($queue));
+        $this->validateKey($queue);
+        return $this->wrap(fn() => (int) $this->getRedis()->lLen($queue));
     }
 
-    /**
-     * {@inheritdoc}
-     */
-    public function getSorted(string $set, int $count, int $offset = 0, bool $reversed = false): Generator
-    {
-
-        $command = $reversed ? 'ZREVRANGE' : 'ZRANGE';
-        $redis = $this->getRedis();
-
-        if ($reversed) {
-            $members = $redis->zRevRange($set, $offset, $offset + $count);
-        } else {
-            $members = $redis->zRange($set, $offset, $offset + $count);
-        }
-
-        if (empty($members)) {
-            yield from [];
-
-            return;
-        }
-
-        $anyResults = false;
-
-        foreach ($members as $member) {
-            $memberValue = $this->get($member);
-            if ($memberValue) {
-                $anyResults = true;
-                yield $member => $memberValue;
-            } else {
-                $this->delete($member); // fix for expired (TTL) elements which are still in the
-            }
-        }
-
-        if (!$anyResults) {
-            yield from [];
-
-            return;
-        }
-    }
+    // -------------------------------------------------------------------
+    // Counters
+    // -------------------------------------------------------------------
 
     /**
-     * {@inheritdoc}
+     * Atomically increments the integer stored at $key by $value (INCRBY).
+     *
+     * Auto-creates the key set to 0 before the first increment. The new
+     * post-increment value is not returned (this method is for fluent
+     * chaining); use {@see get()} if you need it.
+     *
+     * Negative $value is accepted — it behaves like {@see decrease()}.
+     *
+     * @return self for chaining.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures, including
+     *         when the existing value is not a valid integer.
      */
     public function increase(string $key, int $value): self
     {
-        $redis = $this->getRedis();
-        $redis->incrBy($key, $value);
-
-        return $this;
+        $this->validateKey($key);
+        return $this->wrap(function () use ($key, $value) {
+            $this->getRedis()->incrBy($key, $value);
+            return $this;
+        });
     }
 
     /**
-     * {@inheritdoc}
+     * Atomically decrements the integer stored at $key by $value (DECRBY).
+     *
+     * Mirror of {@see increase()}: auto-creates at 0, accepts negative input,
+     * does not return the new value.
+     *
+     * @return self for chaining.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures, including
+     *         when the existing value is not a valid integer.
      */
     public function decrease(string $key, int $value): self
     {
-        $redis = $this->getRedis();
-        $redis->decrBy($key, $value);
+        $this->validateKey($key);
+        return $this->wrap(function () use ($key, $value) {
+            $this->getRedis()->decrBy($key, $value);
+            return $this;
+        });
+    }
 
-        return $this;
+    // -------------------------------------------------------------------
+    // Sets / Sorted sets
+    // -------------------------------------------------------------------
+
+    /**
+     * Returns the number of members in a set or sorted set (O(1)).
+     *
+     * @param bool $sortedSet When true uses ZCARD, otherwise SCARD. Pick the
+     *                        one matching how the key was originally written —
+     *                        calling SCARD on a sorted set (or vice versa) is
+     *                        a WRONGTYPE error wrapped as a CacheException.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $set is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function getCardinality(string $set, bool $sortedSet = false): int
+    {
+        $this->validateKey($set);
+        return $this->wrap(function () use ($set, $sortedSet) {
+            $redis = $this->getRedis();
+            if ($sortedSet) {
+                return (int) $redis->zCard($set);
+            }
+            return (int) $redis->sCard($set);
+        });
     }
 
     /**
-     * {@inheritdoc}
+     * Returns the number of keys currently associated with $tag (O(1) SCARD
+     * on the underlying tag set).
+     *
+     * The count may temporarily include ghost entries until {@see getTagged()}
+     * or {@see clearByTag()} prunes them.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $tag is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function getTagCardinality(string $tag): int
+    {
+        $this->validateKey($tag);
+        return $this->wrap(fn() => (int) $this->getRedis()->sCard(self::TAG_KEY_SET_PREFIX . $tag));
+    }
+
+    /**
+     * Iterates a window of a sorted set, paired with each member's cached value.
+     *
+     * Treats the sorted set as an ordered index of cache keys: each member
+     * name is looked up via MGET against the main cache space, so a sorted
+     * set entry whose corresponding key has expired/been deleted is detected
+     * and pruned (`ZREM` + `delete()`).
+     *
+     * **Stored `false` vs missing**: when MGET returns `false`, an EXISTS
+     * probe disambiguates — a key that still exists yields its `false` value
+     * intact; one that's gone is pruned and skipped.
+     *
+     * **Side effects on iteration**: cleanup is interleaved with iteration
+     * (unlike {@see getTagged()}'s deferred-flush model). Consumers that
+     * break out early will leave un-inspected dangling entries for the next
+     * call to handle.
+     *
+     * @param int  $count    Window size (number of consecutive members).
+     * @param int  $offset   Zero-based start index within the sorted set.
+     * @param bool $reversed When true uses ZREVRANGE (highest score first),
+     *                       otherwise ZRANGE (lowest score first).
+     *
+     * @return Generator<string, mixed> Yielding sortedSetMember => cachedValue.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $set is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     */
+    public function getSorted(string $set, int $count, int $offset = 0, bool $reversed = false): Generator
+    {
+        $this->validateKey($set);
+        try {
+            $redis = $this->getRedis();
+            $end = $offset + $count - 1;
+
+            $members = $reversed
+                ? $redis->zRevRange($set, $offset, $end)
+                : $redis->zRange($set, $offset, $end);
+
+            if (!is_array($members) || $members === []) {
+                return;
+            }
+
+            $values = $redis->mGet($members);
+
+            foreach ($members as $i => $member) {
+                $value = $values[$i];
+                if ($value !== false) {
+                    yield $member => $value;
+                    continue;
+                }
+                // false from MGET means either "missing" or a stored literal
+                // `false`. Probe EXISTS to disambiguate before pruning.
+                if ($redis->exists($member)) {
+                    yield $member => false;
+                    continue;
+                }
+                $redis->zRem($set, $member);
+                $this->delete($member);
+            }
+        } catch (RedisException $e) {
+            throw $this->toCacheException($e);
+        }
+    }
+
+    /**
+     * Adds a single value to the set at $key (SADD).
+     *
+     * Auto-creates the set on first add. Sets dedupe automatically — adding
+     * an existing member is a no-op.
+     *
+     * @return self for chaining.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
      */
     public function addToSet(string $key, mixed $value): self
     {
-        $redis = $this->getRedis();
-        $redis->sAdd($key, $value);
-        return $this;
+        $this->validateKey($key);
+        return $this->wrap(function () use ($key, $value) {
+            $this->getRedis()->sAdd($key, $value);
+            return $this;
+        });
     }
 
     /**
-     * {@inheritdoc}
+     * Removes a single value from the set at $key (SREM).
+     *
+     * Idempotent: removing a non-member or operating on a missing set is a
+     * no-op. The set itself is auto-deleted by Redis once empty.
+     *
+     * @return self for chaining.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
      */
     public function removeFromSet(string $key, mixed $value): self
     {
-        $redis = $this->getRedis();
-        $redis->sRem($key, $value);
-        return $this;
+        $this->validateKey($key);
+        return $this->wrap(function () use ($key, $value) {
+            $this->getRedis()->sRem($key, $value);
+            return $this;
+        });
     }
 
     /**
-     * {@inheritdoc}
+     * Returns all members of the set at $key (SMEMBERS).
+     *
+     * Sets are unordered — the returned list has no meaningful ordering.
+     *
+     * @return list<string>|null Null when the set doesn't exist; an empty
+     *                           list when the set exists but has no members.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
      */
     public function getSet(string $key): ?array
     {
-        $redis = $this->getRedis();
-        $members = $redis->sMembers($key);
-        if ($members === false) {
-            return null;
-        }
-
-        return $members;
+        $this->validateKey($key);
+        return $this->wrap(function () use ($key) {
+            $members = $this->getRedis()->sMembers($key);
+            return is_array($members) ? array_values($members) : null;
+        });
     }
 
     /**
-     * {@inheritdoc}
+     * Atomically replaces the set at $key with exactly the given members.
+     *
+     * Implemented as DEL + SADD (single SADDARRAY when $values is non-empty).
+     * Use this when you have the full desired contents and want a clean
+     * swap; for incremental changes prefer {@see addToSet()} /
+     * {@see removeFromSet()}.
+     *
+     * Passing an empty array effectively deletes the set.
+     *
+     * @param array<int, mixed> $values
+     *
+     * @return self for chaining.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
      */
     public function createSet(string $key, array $values): self
     {
-        $redis = $this->getRedis();
-        $redis->del($key); // delete existing set if any
-        $redis->sAddArray($key, $values);
-        return $this;
+        $this->validateKey($key);
+        return $this->wrap(function () use ($key, $values) {
+            $redis = $this->getRedis();
+            $redis->del($key);
+            if ($values === []) {
+                return $this;
+            }
+            $redis->sAddArray($key, $values);
+            return $this;
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // Internals
+    // -------------------------------------------------------------------
+
+    /**
+     * Enforces PSR-16's cache-key rules: non-empty string, free of the
+     * reserved characters {@see RESERVED_KEY_CHARS}.
+     *
+     * Accepts `mixed` (rather than `string`) so it can be called on
+     * loosely-typed iterable members straight from `getMultiple()` etc.
+     * without an extra cast.
+     *
+     * @throws InvalidArgumentException Which implements PSR-16's
+     *         {@see \Psr\SimpleCache\InvalidArgumentException}.
+     */
+    private function validateKey(mixed $key): void
+    {
+        if (!is_string($key) || $key === '') {
+            throw new InvalidArgumentException('Cache key must be a non-empty string.');
+        }
+        if (preg_match('#[' . preg_quote(self::RESERVED_KEY_CHARS, '#') . ']#', $key) === 1) {
+            throw new InvalidArgumentException(
+                sprintf('Cache key "%s" contains reserved characters (%s).', $key, self::RESERVED_KEY_CHARS)
+            );
+        }
+    }
+
+    /**
+     * Collapses PSR-16's `null|int|DateInterval` TTL form into a single
+     * "seconds from now" integer (or null = no expiry).
+     *
+     * DateInterval is resolved against the current moment, so a `P1D`
+     * interval becomes ~86400 seconds. Returned value may be ≤ 0 if the
+     * interval points to the past — callers are expected to treat that as
+     * an immediate-delete signal.
+     */
+    private function normalizeTtl(null|int|DateInterval $ttl): ?int
+    {
+        if ($ttl === null) {
+            return null;
+        }
+        if ($ttl instanceof DateInterval) {
+            $now = new DateTimeImmutable();
+            return $now->add($ttl)->getTimestamp() - $now->getTimestamp();
+        }
+        return $ttl;
+    }
+
+    /**
+     * Runs the given callable and translates phpredis storage errors into
+     * Psr\SimpleCache\CacheException, as PSR-16 requires.
+     *
+     * On RedisException:
+     * - Resets the cached connection so the next call reconnects (a single
+     *   network blip doesn't poison the client for the rest of the request).
+     * - If {@see RedisConnectionConfig::$retryOnce} is true, retries the
+     *   operation exactly once with a fresh connection before giving up.
+     *
+     * @template T
+     * @param callable():T $op
+     * @return T
+     */
+    private function wrap(callable $op): mixed
+    {
+        try {
+            return $op();
+        } catch (RedisException $e) {
+            $this->redis = null;
+            if ($this->config->retryOnce && !$this->retrying) {
+                $this->retrying = true;
+                try {
+                    return $op();
+                } catch (RedisException $retryError) {
+                    throw $this->toCacheException($retryError);
+                } finally {
+                    $this->retrying = false;
+                }
+            }
+            throw $this->toCacheException($e);
+        }
+    }
+
+    /**
+     * Wraps a phpredis {@see RedisException} as the package's
+     * {@see CacheException} (which is PSR-16's
+     * {@see \Psr\SimpleCache\CacheException}), preserving the original as
+     * the chained cause.
+     */
+    private function toCacheException(RedisException $e): CacheException
+    {
+        return new CacheException(
+            sprintf('Redis operation failed: %s', $e->getMessage()),
+            0,
+            $e
+        );
     }
 }

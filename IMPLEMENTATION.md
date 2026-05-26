@@ -35,16 +35,16 @@ The project now includes Docker Compose configuration using **Valkey** (Redis-co
 
 ```bash
 # Start Valkey service
-make up
+composer redis:start
 
-# Run comprehensive tests
-make test-comprehensive
+# Run BDD tests
+composer test:bdd
 
 # Test connection
-make test-connection
+composer test:connection
 
 # Clean up
-make clean
+composer clean
 ```
 
 ## Comprehensive Test Coverage
@@ -69,23 +69,18 @@ The Behat tests cover all major functionality:
 
 ### Docker Services
 - **valkey**: Redis-compatible database on port 6380
-- **app**: Application container with mounted source code
-- **test**: Test runner container
 
 ## Running Tests
 
 ```bash
-# Using Make
-make test-comprehensive
+# Using composer (recommended)
+composer test:bdd
 
 # Using Docker Compose directly
-docker compose up -d valkey
+docker compose -f features/docker/docker-compose.yml up -d valkey
 export REDIS_HOST=localhost REDIS_PORT=6380
-./vendor/bin/behat features/cache_comprehensive.feature
-docker compose down
-
-# Using the test script
-./test_comprehensive.sh
+./vendor/bin/behat
+docker compose -f features/docker/docker-compose.yml down
 ```
 
 ## Implementation Notes

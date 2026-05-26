@@ -1,16 +1,17 @@
-# GryfOSS Rapid Cache Client
+# IDCT Rapid Cache Client
 
-![Tests status](https://github.com/GryfOSS/rapid-cache-client/workflows/tests/badge.svg)
-![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/GryfOSS/rapid-cache-client?label=latest%20version&sort=semver)
+![Tests status](https://github.com/ideaconnect/php-rapid-cache-client/workflows/tests/badge.svg)
+![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/ideaconnect/php-rapid-cache-client?label=latest%20version&sort=semver)
 
-A high-performance Redis-based caching library for PHP that provides advanced caching features including tagging, queues, sets, and sorted sets. The library implements the `CacheServiceInterface` standard for caching services and offers a fast Redis implementation through `RapidCacheClient`.
+A high-performance Redis-based caching library for PHP. `RapidCacheClient` implements [PSR-16 (SimpleCache)](https://www.php-fig.org/psr/psr-16/) and extends it with tagging, queues, sets, sorted sets, and atomic counters via the `CacheServiceInterface` contract.
 
 ## Features
 
-- **Basic Cache Operations**: Get, set, delete, and clear cache entries
-- **TTL Support**: Configurable time-to-live for cache entries
+- **PSR-16 SimpleCache**: Drop-in compatible with any PSR-16 consumer
+- **Basic Cache Operations**: `get`, `set`, `delete`, `clear`, `has`, plus multi-key variants
+- **TTL Support**: `int` seconds or `\DateInterval`
 - **Tagging System**: Group cache entries by tags for bulk operations
-- **Queue Operations**: FIFO queue support with enqueue/dequeue operations
+- **Queue Operations**: FIFO queue support with enqueue/pop/peek
 - **Set Operations**: Redis set operations for unique collections
 - **Sorted Sets**: Ordered collections with scoring
 - **Atomic Operations**: Increment/decrement numeric values
@@ -29,7 +30,7 @@ A high-performance Redis-based caching library for PHP that provides advanced ca
 Install the package via Composer:
 
 ```bash
-composer require gryf-oss/rapid-cache-client
+composer require idct/php-rapid-cache-client
 ```
 
 ### System Requirements
@@ -54,7 +55,7 @@ pecl install redis igbinary
 ```php
 <?php
 
-use GryfOSS\Cache\RapidCacheClient;
+use IDCT\Cache\RapidCacheClient;
 
 // Basic setup
 $cache = new RapidCacheClient('localhost', 6379);
@@ -63,45 +64,56 @@ $cache = new RapidCacheClient('localhost', 6379);
 $cache = new RapidCacheClient('localhost', 6379, 'myapp:');
 ```
 
-### Basic Cache Operations
+### Basic Cache Operations (PSR-16)
 
 ```php
-// Store a value
-$cache->set('user:123', ['name' => 'John Doe', 'email' => 'john@example.com']);
+// Store a value (returns bool)
+$cache->set('user.123', ['name' => 'John Doe', 'email' => 'john@example.com']);
 
-// Retrieve a value
-$user = $cache->get('user:123');
+// Retrieve a value (returns $default on miss)
+$user = $cache->get('user.123');
+$user = $cache->get('user.123', $defaultValue);
 
-// Store with TTL (expires in 1 hour)
-$cache->set('session:abc123', $sessionData, null, 3600);
+// Store with a TTL — int seconds or DateInterval
+$cache->set('session.abc', $sessionData, 3600);
+$cache->set('session.abc', $sessionData, new DateInterval('PT1H'));
 
-// Delete a specific key
-$cache->delete('user:123');
+// Check existence
+if ($cache->has('user.123')) { /* ... */ }
 
-// Clear all cache
+// Delete / clear
+$cache->delete('user.123');
 $cache->clear();
+
+// Multi-key operations
+$cache->setMultiple(['k1' => 'v1', 'k2' => 'v2'], 60);
+$values = $cache->getMultiple(['k1', 'k2'], 'fallback');
+$cache->deleteMultiple(['k1', 'k2']);
 ```
+
+> **PSR-16 key rules** — keys must be non-empty strings; characters `{}()/\@:` are reserved and rejected with a `Psr\SimpleCache\InvalidArgumentException`. A TTL of `0` (or negative) deletes the entry per the spec.
 
 ### Working with Tags
 
-Tags allow you to group related cache entries and perform bulk operations:
+Tags allow you to group related cache entries and perform bulk operations. Since
+PSR-16 `set()` no longer takes a tag, use `setTagged()` or call `tag()` after `set()`:
 
 ```php
-// Store items with tags
-$cache->set('user:123', $userData, 'users');
-$cache->set('user:456', $otherUserData, 'users');
-$cache->set('post:789', $postData, 'posts');
+// Store items with tags in a single call
+$cache->setTagged('user.123', $userData, 'users');
+$cache->setTagged('user.456', $otherUserData, 'users', 3600); // with TTL
+
+// Or set first, tag later
+$cache->set('post.789', $postData);
+$cache->tag('post.789', 'posts');
 
 // Get all items with a specific tag
 foreach ($cache->getTagged('users') as $key => $value) {
     echo "Key: $key, Value: " . json_encode($value) . "\n";
 }
 
-// Tag an existing item
-$cache->tag('user:123', 'premium-users');
-
 // Remove tag from item
-$cache->untag('user:123', 'premium-users');
+$cache->untag('user.123', 'premium-users');
 
 // Clear all items with a specific tag
 $cache->clearByTag('users');
@@ -148,6 +160,9 @@ $roles = $cache->getSet('user-roles:123');
 
 // Get set size
 $count = $cache->getCardinality('user-roles:123');
+
+// Get number of keys tagged with a given tag
+$taggedCount = $cache->getTagCardinality('users');
 ```
 
 ### Sorted Sets
@@ -155,10 +170,6 @@ $count = $cache->getCardinality('user-roles:123');
 For ordered collections with scores:
 
 ```php
-// Add scored items (using Redis sorted sets)
-$cache->set('score:user123', 100, 'leaderboard', null, 100);
-$cache->set('score:user456', 200, 'leaderboard', null, 200);
-
 // Get sorted items (highest first)
 foreach ($cache->getSorted('leaderboard', 10, 0, true) as $key => $value) {
     echo "User: $key, Score: $value\n";
@@ -190,16 +201,17 @@ $views = $cache->get('page-views');
 
 ### Error Handling
 
+All argument-validation errors are thrown as `IDCT\Cache\Exception\InvalidArgumentException`,
+which implements `Psr\SimpleCache\InvalidArgumentException` so PSR-16 consumers can
+catch it through the standard interface:
+
 ```php
-use GryfOSS\Cache\RapidCacheClient;
-use InvalidArgumentException;
+use IDCT\Cache\RapidCacheClient;
+use Psr\SimpleCache\InvalidArgumentException;
 
 try {
     $cache = new RapidCacheClient('localhost', 6379);
-
-    // This will throw an exception
-    $cache->set('key', null); // Cannot set null values
-
+    $cache->get('illegal:key'); // reserved char → throws
 } catch (InvalidArgumentException $e) {
     echo "Cache error: " . $e->getMessage();
 }
@@ -226,7 +238,7 @@ $retrieved = $cache->get('complex:data'); // Automatically unserialized
 $userIds = [123, 456, 789];
 foreach ($userIds as $id) {
     $userData = getUserFromDatabase($id);
-    $cache->set("user:$id", $userData, 'active-users', 3600);
+    $cache->setTagged("user.$id", $userData, 'active-users', 3600);
 }
 
 // Later, invalidate all active users
@@ -278,8 +290,8 @@ composer test
 # Run unit tests only
 composer test:unit
 
-# Run functional tests only
-composer test:functional
+# Run BDD (Behat) tests only
+composer test:bdd
 
 # Run tests without coverage
 composer test:unit-no-coverage
@@ -432,16 +444,23 @@ composer install
 php bin/benchmark.php
 ```
 
+## Behavior Notes
+
+- **`clear()` is prefix-scoped.** When a key prefix is configured, `clear()` uses `SCAN` + `UNLINK` to remove only keys under that prefix. With no prefix it falls back to `FLUSHDB` (current database only). It never calls `FLUSHALL`, so it will not destroy unrelated data on the same Redis instance.
+- **Tag storage format.** Tagged-key membership is stored in a Redis `SET` at `TAG:<tag>` (member values resolved at read time via `MGET`). This means `getTagged()` always returns the **current** value of each key — overwrites via `set()` after `setTagged()` are reflected immediately.
+- **`get()` cannot distinguish a stored literal `false`.** With the igbinary serializer, a missing key and a key holding the value `false` both produce `false` from the underlying call. `get()` therefore returns the `$default` argument for both cases.
+- **`getTagCardinality(string $tag)`** is the preferred way to count keys associated with a tag; `getCardinality()` no longer special-cases the internal `TAG:` prefix.
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ## Changelog
 
-See [RELEASES](https://github.com/GryfOSS/rapid-cache-client/releases) for version history and changes.
+See [RELEASES](https://github.com/ideaconnect/php-rapid-cache-client/releases) for version history and changes.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/GryfOSS/rapid-cache-client/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/GryfOSS/rapid-cache-client/discussions)
+- **Issues**: [GitHub Issues](https://github.com/ideaconnect/php-rapid-cache-client/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/ideaconnect/php-rapid-cache-client/discussions)
 - **Documentation**: This README and inline code documentation

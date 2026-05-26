@@ -1,7 +1,7 @@
 <?php
 
 use Behat\Behat\Context\Context;
-use GryfOSS\Cache\RapidCacheClient;
+use IDCT\Cache\RapidCacheClient;
 use PHPUnit\Framework\Assert;
 
 /**
@@ -11,18 +11,18 @@ class FeatureContext implements Context
 {
     private RapidCacheClient $cacheService;
     private mixed $retrievedValue = null;
+    /** @var array<int|string, mixed> */
     private array $retrievedValues = [];
     private int $retrievedCount = 0;
     private int $retrievedLength = 0;
-    private array $queueItems = [];
 
     /**
      * Initializes context.
      */
     public function __construct()
     {
-        $host = $_ENV['REDIS_HOST'] ?? 'localhost';
-        $port = (int)($_ENV['REDIS_PORT'] ?? 6380);
+        $host = is_string($_ENV['REDIS_HOST'] ?? null) ? $_ENV['REDIS_HOST'] : 'localhost';
+        $port = (int) ($_ENV['REDIS_PORT'] ?? 6380);
 
         $this->cacheService = new RapidCacheClient($host, $port);
         $this->cacheService->clear(); // Start with clean slate
@@ -31,20 +31,19 @@ class FeatureContext implements Context
     /**
      * @BeforeScenario
      */
-    public function clearCache()
+    public function clearCache(): void
     {
         $this->cacheService->clear();
         $this->retrievedValue = null;
         $this->retrievedValues = [];
         $this->retrievedCount = 0;
         $this->retrievedLength = 0;
-        $this->queueItems = [];
     }
 
     /**
      * @Given I set a cache item with key :key and value :value
      */
-    public function iSetACacheItemWithKeyAndValue($key, $value)
+    public function iSetACacheItemWithKeyAndValue(string $key, string $value): void
     {
         $this->cacheService->set($key, $value);
     }
@@ -52,31 +51,31 @@ class FeatureContext implements Context
     /**
      * @Given I set a cache item with key :key and value :value with TTL :ttl seconds
      */
-    public function iSetACacheItemWithKeyAndValueWithTtl($key, $value, $ttl)
+    public function iSetACacheItemWithKeyAndValueWithTtl(string $key, string $value, string $ttl): void
     {
-        $this->cacheService->set($key, $value, null, (int)$ttl);
+        $this->cacheService->set($key, $value, (int) $ttl);
     }
 
     /**
      * @Given I set a cache item with key :key and value :value with tag :tag
      */
-    public function iSetACacheItemWithKeyAndValueWithTag($key, $value, $tag)
+    public function iSetACacheItemWithKeyAndValueWithTag(string $key, string $value, string $tag): void
     {
-        $this->cacheService->set($key, $value, $tag);
+        $this->cacheService->setTagged($key, $value, $tag);
     }
 
     /**
      * @Given I set a cache item with key :key and value :value with tag :tag with TTL :ttl seconds
      */
-    public function iSetACacheItemWithKeyAndValueWithTagWithTtl($key, $value, $tag, $ttl)
+    public function iSetACacheItemWithKeyAndValueWithTagWithTtl(string $key, string $value, string $tag, string $ttl): void
     {
-        $this->cacheService->set($key, $value, $tag, (int)$ttl);
+        $this->cacheService->setTagged($key, $value, $tag, (int) $ttl);
     }
 
     /**
      * @Given the cache is empty
      */
-    public function theCacheIsEmpty()
+    public function theCacheIsEmpty(): void
     {
         $this->cacheService->clear();
     }
@@ -84,7 +83,7 @@ class FeatureContext implements Context
     /**
      * @When I retrieve the cache item with key :key
      */
-    public function iRetrieveTheCacheItemWithKey($key)
+    public function iRetrieveTheCacheItemWithKey(string $key): void
     {
         $this->retrievedValue = $this->cacheService->get($key);
     }
@@ -92,7 +91,7 @@ class FeatureContext implements Context
     /**
      * @When I retrieve items by tag :tag
      */
-    public function iRetrieveItemsByTag($tag)
+    public function iRetrieveItemsByTag(string $tag): void
     {
         $this->retrievedValues = [];
         foreach ($this->cacheService->getTagged($tag) as $key => $value) {
@@ -103,7 +102,7 @@ class FeatureContext implements Context
     /**
      * @When I delete the cache item with key :key
      */
-    public function iDeleteTheCacheItemWithKey($key)
+    public function iDeleteTheCacheItemWithKey(string $key): void
     {
         $this->cacheService->delete($key);
     }
@@ -111,15 +110,15 @@ class FeatureContext implements Context
     /**
      * @When I wait :seconds seconds
      */
-    public function iWaitSeconds($seconds)
+    public function iWaitSeconds(string $seconds): void
     {
-        sleep((int)$seconds);
+        sleep((int) $seconds);
     }
 
     /**
      * @When I enqueue :value to queue :queue
      */
-    public function iEnqueueToQueue($value, $queue)
+    public function iEnqueueToQueue(string $value, string $queue): void
     {
         $this->cacheService->enqueue($queue, $value);
     }
@@ -127,7 +126,7 @@ class FeatureContext implements Context
     /**
      * @When I pop from queue :queue
      */
-    public function iPopFromQueue($queue)
+    public function iPopFromQueue(string $queue): void
     {
         $this->retrievedValue = $this->cacheService->pop($queue);
     }
@@ -135,7 +134,7 @@ class FeatureContext implements Context
     /**
      * @When I peek from queue :queue
      */
-    public function iPeekFromQueue($queue)
+    public function iPeekFromQueue(string $queue): void
     {
         $this->retrievedValue = $this->cacheService->peek($queue);
     }
@@ -143,16 +142,22 @@ class FeatureContext implements Context
     /**
      * @When I peek :count items from queue :queue
      */
-    public function iPeekItemsFromQueue($count, $queue)
+    public function iPeekItemsFromQueue(string $count, string $queue): void
     {
-        $result = $this->cacheService->peek($queue, (int)$count);
-        $this->retrievedValues = is_array($result) ? $result : ($result === null ? [] : [$result]);
+        $result = $this->cacheService->peek($queue, (int) $count);
+        if (is_array($result)) {
+            $this->retrievedValues = $result;
+        } elseif ($result === null) {
+            $this->retrievedValues = [];
+        } else {
+            $this->retrievedValues = [$result];
+        }
     }
 
     /**
      * @When I get the length of queue :queue
      */
-    public function iGetTheLengthOfQueue($queue)
+    public function iGetTheLengthOfQueue(string $queue): void
     {
         $this->retrievedLength = $this->cacheService->getQueueLength($queue);
     }
@@ -160,23 +165,23 @@ class FeatureContext implements Context
     /**
      * @When I increase key :key by :value
      */
-    public function iIncreaseKeyBy($key, $value)
+    public function iIncreaseKeyBy(string $key, string $value): void
     {
-        $this->cacheService->increase($key, (int)$value);
+        $this->cacheService->increase($key, (int) $value);
     }
 
     /**
      * @When I decrease key :key by :value
      */
-    public function iDecreaseKeyBy($key, $value)
+    public function iDecreaseKeyBy(string $key, string $value): void
     {
-        $this->cacheService->decrease($key, (int)$value);
+        $this->cacheService->decrease($key, (int) $value);
     }
 
     /**
      * @When I create a set :set with values :values
      */
-    public function iCreateASetWithValues($set, $values)
+    public function iCreateASetWithValues(string $set, string $values): void
     {
         $valueArray = explode(',', $values);
         $this->cacheService->createSet($set, array_map('trim', $valueArray));
@@ -185,7 +190,7 @@ class FeatureContext implements Context
     /**
      * @When I add :value to set :set
      */
-    public function iAddToSet($value, $set)
+    public function iAddToSet(string $value, string $set): void
     {
         $this->cacheService->addToSet($set, $value);
     }
@@ -193,7 +198,7 @@ class FeatureContext implements Context
     /**
      * @When I remove :value from set :set
      */
-    public function iRemoveFromSet($value, $set)
+    public function iRemoveFromSet(string $value, string $set): void
     {
         $this->cacheService->removeFromSet($set, $value);
     }
@@ -201,7 +206,7 @@ class FeatureContext implements Context
     /**
      * @When I get set :set
      */
-    public function iGetSet($set)
+    public function iGetSet(string $set): void
     {
         $this->retrievedValues = $this->cacheService->getSet($set) ?? [];
     }
@@ -209,7 +214,7 @@ class FeatureContext implements Context
     /**
      * @When I get the cardinality of set :set
      */
-    public function iGetTheCardinalityOfSet($set)
+    public function iGetTheCardinalityOfSet(string $set): void
     {
         $this->retrievedCount = $this->cacheService->getCardinality($set);
     }
@@ -217,7 +222,7 @@ class FeatureContext implements Context
     /**
      * @When I remove items by tag :tag
      */
-    public function iRemoveItemsByTag($tag)
+    public function iRemoveItemsByTag(string $tag): void
     {
         $this->cacheService->clearByTag($tag);
     }
@@ -225,7 +230,7 @@ class FeatureContext implements Context
     /**
      * @Then the retrieved value should be :value
      */
-    public function theRetrievedValueShouldBe($value)
+    public function theRetrievedValueShouldBe(string $value): void
     {
         if ($value === 'null') {
             Assert::assertNull($this->retrievedValue);
@@ -237,7 +242,7 @@ class FeatureContext implements Context
     /**
      * @Then the retrieved values should contain :key with value :value
      */
-    public function theRetrievedValuesShouldContainWithValue($key, $value)
+    public function theRetrievedValuesShouldContainWithValue(string $key, string $value): void
     {
         Assert::assertArrayHasKey($key, $this->retrievedValues);
         Assert::assertEquals($value, $this->retrievedValues[$key]);
@@ -246,7 +251,7 @@ class FeatureContext implements Context
     /**
      * @Then the retrieved values should not contain :key
      */
-    public function theRetrievedValuesShouldNotContain($key)
+    public function theRetrievedValuesShouldNotContain(string $key): void
     {
         Assert::assertArrayNotHasKey($key, $this->retrievedValues);
     }
@@ -254,15 +259,15 @@ class FeatureContext implements Context
     /**
      * @Then the retrieved values should be empty
      */
-    public function theRetrievedValuesShouldBeEmpty()
+    public function theRetrievedValuesShouldBeEmpty(): void
     {
-        Assert::assertEmpty($this->retrievedValues);
+        Assert::assertSame([], $this->retrievedValues);
     }
 
     /**
      * @Then the retrieved values should equal :csv
      */
-    public function theRetrievedValuesShouldEqual($csv)
+    public function theRetrievedValuesShouldEqual(string $csv): void
     {
         $expected = array_map('trim', explode(',', $csv));
         Assert::assertEquals($expected, $this->retrievedValues);
@@ -271,23 +276,23 @@ class FeatureContext implements Context
     /**
      * @Then the queue length should be :length
      */
-    public function theQueueLengthShouldBe($length)
+    public function theQueueLengthShouldBe(string $length): void
     {
-        Assert::assertEquals((int)$length, $this->retrievedLength);
+        Assert::assertSame((int) $length, $this->retrievedLength);
     }
 
     /**
      * @Then the cardinality should be :count
      */
-    public function theCardinalityShouldBe($count)
+    public function theCardinalityShouldBe(string $count): void
     {
-        Assert::assertEquals((int)$count, $this->retrievedCount);
+        Assert::assertSame((int) $count, $this->retrievedCount);
     }
 
     /**
      * @Then the set should contain :value
      */
-    public function theSetShouldContain($value)
+    public function theSetShouldContain(string $value): void
     {
         Assert::assertContains($value, $this->retrievedValues);
     }
@@ -295,7 +300,7 @@ class FeatureContext implements Context
     /**
      * @Then the set should not contain :value
      */
-    public function theSetShouldNotContain($value)
+    public function theSetShouldNotContain(string $value): void
     {
         Assert::assertNotContains($value, $this->retrievedValues);
     }
@@ -303,8 +308,8 @@ class FeatureContext implements Context
     /**
      * @Then the retrieved values should have :count items
      */
-    public function theRetrievedValuesShouldHaveItems($count)
+    public function theRetrievedValuesShouldHaveItems(string $count): void
     {
-        Assert::assertCount((int)$count, $this->retrievedValues);
+        Assert::assertCount((int) $count, $this->retrievedValues);
     }
 }

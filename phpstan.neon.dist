@@ -1,0 +1,39 @@
+includes:
+    - vendor/phpstan/phpstan-strict-rules/rules.neon
+    - vendor/phpstan/phpstan-phpunit/extension.neon
+    - vendor/phpstan/phpstan-phpunit/rules.neon
+
+parameters:
+    level: 8
+    paths:
+        - src
+        - tests
+        - features/Contexts
+    bootstrapFiles:
+        - vendor/autoload.php
+    treatPhpDocTypesAsCertain: false
+    ignoreErrors:
+        # phpredis exposes camelCase aliases (mGet, sRem, lRange, etc.) but PHPStan's
+        # stubs treat the lowercase form as canonical. Both work at runtime.
+        - identifier: method.nameCase
+          paths:
+            - src/RapidCacheClient.php
+
+        # PHPUnit's $this->assertSame() etc. are technically dynamic calls to static
+        # methods, but this is the canonical PHPUnit assertion idiom.
+        - identifier: staticMethod.dynamicCall
+          paths:
+            - tests/
+
+        # Tests legitimately make redundant assertInstanceOf checks as runtime contract
+        # tests / documentation — even when the static type system already proves them.
+        - identifier: method.alreadyNarrowedType
+          paths:
+            - tests/
+
+        # Per-invocation assertion matches against `$matcher->numberOfInvocations()`
+        # are bounded by `$this->exactly(N)` which already fails the test if N is
+        # exceeded — the unhandled int ranges are unreachable at runtime.
+        - identifier: match.unhandled
+          paths:
+            - tests/
