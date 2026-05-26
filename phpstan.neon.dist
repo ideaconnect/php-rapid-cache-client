@@ -37,3 +37,10 @@ parameters:
         - identifier: match.unhandled
           paths:
             - tests/
+
+        # Constructor-validation tests deliberately pass out-of-range literals
+        # (e.g. pipelineBatchSize: 0) to verify the runtime guard fires. PHPStan
+        # narrows the constructor params, so the violation is by design here.
+        - identifier: argument.type
+          paths:
+            - tests/Unit/RedisConnectionConfigTest.php

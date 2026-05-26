@@ -39,6 +39,13 @@ final class RedisConnectionConfig
      *                                    exception is wrapped and rethrown. Recovers from
      *                                    transient network blips at the cost of one extra
      *                                    round-trip on failure.
+     * @param int<1, max> $pipelineBatchSize Max commands sent in a single pipelined batch or
+     *                                    arguments packed into a single multi-key command
+     *                                    (MGET/MSET/DEL). Bulk methods (getMultiple,
+     *                                    setMultiple, deleteMultiple, clearByTag) silently
+     *                                    chunk inputs to this size. Bounds memory/latency on
+     *                                    large inputs and keeps requests well under Redis's
+     *                                    client-query-buffer-limit. Default 1000.
      */
     public function __construct(
         public readonly string $host,
@@ -51,6 +58,7 @@ final class RedisConnectionConfig
         public readonly bool $persistent = false,
         public readonly ?string $persistentId = null,
         public readonly bool $retryOnce = false,
+        public readonly int $pipelineBatchSize = 1000,
     ) {
         if ($host === '') {
             throw new \InvalidArgumentException('host must be a non-empty string.');
@@ -73,6 +81,11 @@ final class RedisConnectionConfig
         if ($readTimeout < 0) {
             throw new \InvalidArgumentException(
                 sprintf('readTimeout must be >= 0, got %F.', $readTimeout)
+            );
+        }
+        if ($pipelineBatchSize < 1) {
+            throw new \InvalidArgumentException(
+                sprintf('pipelineBatchSize must be >= 1, got %d.', $pipelineBatchSize)
             );
         }
     }

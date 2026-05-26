@@ -432,6 +432,178 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->deleteMultiple(['key1', 'key2']));
     }
 
+    public function testGetMultipleChunksMGetByConfiguredBatchSize(): void
+    {
+        $client = $this->buildClientWithBatchSize(2);
+
+        $mGetMatcher = $this->exactly(3);
+        $this->redisMock->expects($mGetMatcher)
+            ->method('mGet')
+            ->willReturnCallback(function (array $chunk) use ($mGetMatcher) {
+                match ($mGetMatcher->numberOfInvocations()) {
+                    1 => $this->assertSame(['k1', 'k2'], $chunk),
+                    2 => $this->assertSame(['k3', 'k4'], $chunk),
+                    3 => $this->assertSame(['k5'], $chunk),
+                };
+                return array_map(fn($k) => 'v_' . $k, $chunk);
+            });
+
+        $result = $client->getMultiple(['k1', 'k2', 'k3', 'k4', 'k5'], 'default');
+
+        $this->assertSame(
+            ['k1' => 'v_k1', 'k2' => 'v_k2', 'k3' => 'v_k3', 'k4' => 'v_k4', 'k5' => 'v_k5'],
+            $result
+        );
+    }
+
+    public function testSetMultipleWithTtlChunksPipelineByConfiguredBatchSize(): void
+    {
+        $client = $this->buildClientWithBatchSize(2);
+
+        $this->redisMock->expects($this->exactly(3))
+            ->method('multi')
+            ->with(Redis::PIPELINE);
+        $this->redisMock->expects($this->exactly(5))->method('setex')->willReturn(true);
+        $this->redisMock->expects($this->exactly(3))
+            ->method('exec')
+            ->willReturnOnConsecutiveCalls([true, true], [true, true], [true]);
+
+        $this->assertTrue($client->setMultiple([
+            'k1' => 'v1',
+            'k2' => 'v2',
+            'k3' => 'v3',
+            'k4' => 'v4',
+            'k5' => 'v5',
+        ], 60));
+    }
+
+    public function testSetMultipleWithoutTtlChunksMSetByConfiguredBatchSize(): void
+    {
+        $client = $this->buildClientWithBatchSize(2);
+
+        $mSetMatcher = $this->exactly(3);
+        $this->redisMock->expects($mSetMatcher)
+            ->method('mSet')
+            ->willReturnCallback(function (array $chunk) use ($mSetMatcher) {
+                match ($mSetMatcher->numberOfInvocations()) {
+                    1 => $this->assertSame(['k1' => 'v1', 'k2' => 'v2'], $chunk),
+                    2 => $this->assertSame(['k3' => 'v3', 'k4' => 'v4'], $chunk),
+                    3 => $this->assertSame(['k5' => 'v5'], $chunk),
+                };
+                return true;
+            });
+
+        $this->assertTrue($client->setMultiple([
+            'k1' => 'v1',
+            'k2' => 'v2',
+            'k3' => 'v3',
+            'k4' => 'v4',
+            'k5' => 'v5',
+        ]));
+    }
+
+    public function testSetMultipleWithoutTtlStopsOnFirstFailedChunk(): void
+    {
+        $client = $this->buildClientWithBatchSize(2);
+
+        $this->redisMock->expects($this->exactly(2))
+            ->method('mSet')
+            ->willReturnOnConsecutiveCalls(true, false);
+
+        $this->assertFalse($client->setMultiple([
+            'k1' => 'v1',
+            'k2' => 'v2',
+            'k3' => 'v3',
+            'k4' => 'v4',
+            'k5' => 'v5',
+        ]));
+    }
+
+    public function testDeleteMultipleChunksDelByConfiguredBatchSize(): void
+    {
+        $client = $this->buildClientWithBatchSize(2);
+
+        // unindexKey() walks each key first — return [] so it short-circuits to a single del per key.
+        $this->redisMock->method('sMembers')->willReturn([]);
+
+        $delMatcher = $this->exactly(8);
+        $this->redisMock->expects($delMatcher)
+            ->method('del')
+            ->willReturnCallback(function (string|array $arg) use ($delMatcher) {
+                // First 5 calls: reverse-lookup cleanup per key (TAGS:kN).
+                // Last 3 calls: chunked del of [k1,k2], [k3,k4], [k5].
+                match ($delMatcher->numberOfInvocations()) {
+                    1 => $this->assertSame('TAGS:k1', $arg),
+                    2 => $this->assertSame('TAGS:k2', $arg),
+                    3 => $this->assertSame('TAGS:k3', $arg),
+                    4 => $this->assertSame('TAGS:k4', $arg),
+                    5 => $this->assertSame('TAGS:k5', $arg),
+                    6 => $this->assertSame(['k1', 'k2'], $arg),
+                    7 => $this->assertSame(['k3', 'k4'], $arg),
+                    8 => $this->assertSame(['k5'], $arg),
+                };
+                return 1;
+            });
+
+        $this->assertTrue($client->deleteMultiple(['k1', 'k2', 'k3', 'k4', 'k5']));
+    }
+
+    public function testClearByTagChunksPhaseOneAndPhaseTwoByConfiguredBatchSize(): void
+    {
+        $client = $this->buildClientWithBatchSize(2);
+
+        // Outer sMembers('TAG:t') gives the tag's 3 members. The three inner
+        // sMembers calls happen inside the phase-1 pipeline — their direct
+        // return value is irrelevant; results come back via exec().
+        $this->redisMock->method('sMembers')
+            ->willReturnCallback(fn(string $k) => $k === 'TAG:t' ? ['k1', 'k2', 'k3'] : []);
+
+        // Two batches of phase-1 (sizes 2,1) and two of phase-2 → 4 multi/exec pairs.
+        $this->redisMock->expects($this->exactly(4))
+            ->method('multi')
+            ->with(Redis::PIPELINE);
+        $this->redisMock->expects($this->exactly(4))
+            ->method('exec')
+            ->willReturnOnConsecutiveCalls(
+                [[], []],  // phase 1 chunk 1: 2 sMembers replies
+                [[]],      // phase 1 chunk 2: 1 sMembers reply
+                [1, 1],    // phase 2 chunk 1: 2 del replies
+                [1],       // phase 2 chunk 2: 1 del reply
+            );
+
+        // Phase-2 dels per member (TAGS:k1..k3, inside the pipelines), then
+        // chunked bulk del of the members themselves, then the tag set itself.
+        $delMatcher = $this->exactly(6);
+        $this->redisMock->expects($delMatcher)
+            ->method('del')
+            ->willReturnCallback(function (string|array $arg) use ($delMatcher) {
+                match ($delMatcher->numberOfInvocations()) {
+                    1 => $this->assertSame('TAGS:k1', $arg),
+                    2 => $this->assertSame('TAGS:k2', $arg),
+                    3 => $this->assertSame('TAGS:k3', $arg),
+                    4 => $this->assertSame(['k1', 'k2'], $arg),
+                    5 => $this->assertSame(['k3'], $arg),
+                    6 => $this->assertSame('TAG:t', $arg),
+                };
+                return 1;
+            });
+
+        $this->assertTrue($client->clearByTag('t'));
+    }
+
+    /**
+     * @param int<1, max> $batchSize
+     */
+    private function buildClientWithBatchSize(int $batchSize): RapidCacheClient
+    {
+        $config = new RedisConnectionConfig(host: 'localhost', prefix: 'test:', pipelineBatchSize: $batchSize);
+        $client = new RapidCacheClient($config);
+        $reflection = new \ReflectionClass($client);
+        $reflection->getProperty('redis')->setValue($client, $this->redisMock);
+        $this->redisMock->method('isConnected')->willReturn(true);
+        return $client;
+    }
+
     public function testGetTaggedWithExistingItems(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);

@@ -310,11 +310,17 @@ class RapidCacheClient implements CacheServiceInterface
         }
 
         return $this->wrap(function () use ($normalized, $default) {
-            $values = $this->getRedis()->mGet($normalized);
+            $redis = $this->getRedis();
             $result = [];
-            foreach ($normalized as $i => $key) {
-                $value = $values[$i] ?? false;
-                $result[$key] = $value === false ? $default : $value;
+            // Chunk MGET to keep request size and reply buffer bounded — a
+            // single MGET with 100k+ keys can exceed client-query-buffer-limit
+            // and stall reply parsing.
+            foreach (array_chunk($normalized, $this->config->pipelineBatchSize) as $chunk) {
+                $values = $redis->mGet($chunk);
+                foreach ($chunk as $i => $key) {
+                    $value = $values[$i] ?? false;
+                    $result[$key] = $value === false ? $default : $value;
+                }
             }
             return $result;
         });
@@ -348,25 +354,41 @@ class RapidCacheClient implements CacheServiceInterface
         $seconds = $this->normalizeTtl($ttl);
         return $this->wrap(function () use ($normalized, $seconds) {
             $redis = $this->getRedis();
+            $batchSize = $this->config->pipelineBatchSize;
 
             if ($seconds !== null && $seconds <= 0) {
                 foreach (array_keys($normalized) as $key) {
                     $this->unindexKey($key);
                 }
-                $redis->del(array_keys($normalized));
+                foreach (array_chunk(array_keys($normalized), $batchSize) as $chunk) {
+                    $redis->del($chunk);
+                }
                 return true;
             }
 
             if ($seconds === null) {
-                return (bool) $redis->mSet($normalized);
+                foreach (array_chunk($normalized, $batchSize, true) as $chunk) {
+                    if (!$redis->mSet($chunk)) {
+                        return false;
+                    }
+                }
+                return true;
             }
 
-            $redis->multi(Redis::PIPELINE);
-            foreach ($normalized as $key => $value) {
-                $redis->setex($key, $seconds, $value);
+            // Chunk the SETEX pipeline: EXEC is one atomic blocking step on
+            // the server, so an unbounded batch can stall the single-threaded
+            // event loop for the duration of the whole transaction.
+            foreach (array_chunk($normalized, $batchSize, true) as $chunk) {
+                $redis->multi(Redis::PIPELINE);
+                foreach ($chunk as $key => $value) {
+                    $redis->setex($key, $seconds, $value);
+                }
+                $results = $redis->exec();
+                if (!is_array($results) || in_array(false, $results, true)) {
+                    return false;
+                }
             }
-            $results = $redis->exec();
-            return is_array($results) && !in_array(false, $results, true);
+            return true;
         });
     }
 
@@ -390,10 +412,13 @@ class RapidCacheClient implements CacheServiceInterface
         }
 
         return $this->wrap(function () use ($normalized) {
+            $redis = $this->getRedis();
             foreach ($normalized as $key) {
                 $this->unindexKey($key);
             }
-            $this->getRedis()->del($normalized);
+            foreach (array_chunk($normalized, $this->config->pipelineBatchSize) as $chunk) {
+                $redis->del($chunk);
+            }
             return true;
         });
     }
@@ -608,32 +633,57 @@ class RapidCacheClient implements CacheServiceInterface
                 return true;
             }
 
-            // Phase 1 (pipelined): fetch each member's reverse tag list.
-            $redis->multi(Redis::PIPELINE);
-            foreach ($members as $member) {
-                $redis->sMembers(self::TAGS_SET_NAME_PREFIX . $member);
-            }
-            $reverseLookups = $redis->exec();
-            if (!is_array($reverseLookups)) {
-                $reverseLookups = [];
+            $batchSize = $this->config->pipelineBatchSize;
+
+            // Phase 1 (pipelined, chunked): fetch each member's reverse tag list.
+            $reverseLookups = [];
+            foreach (array_chunk($members, $batchSize) as $chunk) {
+                $redis->multi(Redis::PIPELINE);
+                foreach ($chunk as $member) {
+                    $redis->sMembers(self::TAGS_SET_NAME_PREFIX . $member);
+                }
+                $batchResult = $redis->exec();
+                if (is_array($batchResult)) {
+                    foreach ($batchResult as $entry) {
+                        $reverseLookups[] = $entry;
+                    }
+                } else {
+                    // Pad so phase-2 indexing stays aligned with $members.
+                    foreach ($chunk as $_) {
+                        $reverseLookups[] = null;
+                    }
+                }
             }
 
-            // Phase 2 (pipelined): cascade all cleanup writes.
-            $redis->multi(Redis::PIPELINE);
-            foreach ($members as $i => $member) {
-                $otherTags = is_array($reverseLookups[$i] ?? null) ? $reverseLookups[$i] : [];
-                foreach ($otherTags as $otherTag) {
-                    if ($otherTag === $tag) {
-                        // We're about to del() the whole tag set; skip the redundant sRem.
-                        continue;
+            // Phase 2 (pipelined, chunked): cascade all cleanup writes. Each
+            // member can emit a variable number of sRem commands (one per
+            // OTHER tag it belonged to), so chunking by member count is an
+            // approximation — but a tighter command-level chunker would only
+            // help pathological cases where members carry hundreds of tags.
+            $totalMembers = count($members);
+            for ($offset = 0; $offset < $totalMembers; $offset += $batchSize) {
+                $redis->multi(Redis::PIPELINE);
+                $end = min($offset + $batchSize, $totalMembers);
+                for ($i = $offset; $i < $end; $i++) {
+                    $member = $members[$i];
+                    $otherTags = is_array($reverseLookups[$i] ?? null) ? $reverseLookups[$i] : [];
+                    foreach ($otherTags as $otherTag) {
+                        if ($otherTag === $tag) {
+                            // We're about to del() the whole tag set; skip the redundant sRem.
+                            continue;
+                        }
+                        $redis->sRem(self::TAG_KEY_SET_PREFIX . $otherTag, $member);
                     }
-                    $redis->sRem(self::TAG_KEY_SET_PREFIX . $otherTag, $member);
+                    $redis->del(self::TAGS_SET_NAME_PREFIX . $member);
                 }
-                $redis->del(self::TAGS_SET_NAME_PREFIX . $member);
+                $redis->exec();
             }
-            $redis->del($members);
+
+            // Chunked bulk delete of the members themselves.
+            foreach (array_chunk($members, $batchSize) as $chunk) {
+                $redis->del($chunk);
+            }
             $redis->del($tagSet);
-            $redis->exec();
 
             return true;
         });

@@ -87,4 +87,19 @@ class RedisConnectionConfigTest extends TestCase
 
         new RedisConnectionConfig(host: 'h', readTimeout: -0.1);
     }
+
+    public function testPipelineBatchSizeBelowOneRejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('pipelineBatchSize must be >= 1');
+
+        new RedisConnectionConfig(host: 'h', pipelineBatchSize: 0);
+    }
+
+    public function testPipelineBatchSizeDefaultIsThousand(): void
+    {
+        $config = new RedisConnectionConfig(host: 'h');
+
+        $this->assertSame(1000, $config->pipelineBatchSize);
+    }
 }
