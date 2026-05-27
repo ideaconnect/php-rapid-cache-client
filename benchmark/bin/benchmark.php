@@ -5,117 +5,86 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use IDCT\RapidCacheBenchmark\Adapters\RapidCacheAdapter;
-use IDCT\RapidCacheBenchmark\Adapters\SymfonyCacheIgbinaryAdapter;
-use IDCT\RapidCacheBenchmark\Adapters\SymfonyCacheJsonAdapter;
+use IDCT\Cache\RapidCacheClient;
 use IDCT\RapidCacheBenchmark\BenchmarkRunner;
 use IDCT\RapidCacheBenchmark\HtmlReportGenerator;
 use IDCT\RapidCacheBenchmark\SvgChartGenerator;
+use IDCT\RapidCacheBenchmark\SystemInfo;
 
 function showHelp(): void
 {
-    echo "Cache Benchmark Tool\n\n";
+    echo "IDCT Rapid Cache — Feature Benchmark\n\n";
+    echo "Profiles the throughput of RapidCache's own operations (Core, Tagging,\n";
+    echo "Counters). There is no cross-library comparison.\n\n";
     echo "Usage: php bin/benchmark.php [options]\n\n";
     echo "Options:\n";
-    echo "  --adapter=<name>    Run specific adapter (rapid-cache, symfony-igbinary, symfony-json, all)\n";
-    echo "  --items=<count>     Number of items to benchmark (default: 100000)\n";
+    echo "  --items=<count>     Number of items per operation (default: 100000)\n";
     echo "  --host=<host>       Redis host (default: localhost)\n";
-    echo "  --port=<port>       Redis port (default: 6380)\n";
-    echo "  --type=<type>       Benchmark type (basic, tagged, both) (default: basic)\n";
-    echo "  --tags=<tags>       Comma-separated tags for tagged benchmark (default: tag1,tag2,tag3,tag4)\n";
-    echo "  --report=<path>     Write an HTML report (table + chart) to the given path\n";
+    echo "  --port=<port>       Redis port (default: 6381)\n";
+    echo "  --tags=<count>      Number of tag groups for tagging ops (default: 4)\n";
+    echo "  --counters=<count>  Number of distinct counters for counter ops (default: 1000)\n";
+    echo "  --report=<path>     Write an HTML report (table + charts) to the given path\n";
     echo "  --chart=<path>      Write a static SVG chart (embeddable in Markdown) to the given path\n";
     echo "  --help              Show this help message\n\n";
     echo "Examples:\n";
-    echo "  php bin/benchmark.php --adapter=all --items=50000 --type=basic\n";
-    echo "  php bin/benchmark.php --adapter=all --items=100000 --type=tagged\n";
-    echo "  php bin/benchmark.php --adapter=rapid-cache --type=both --items=10000\n";
-    echo "  php bin/benchmark.php --adapter=all --type=tagged --tags=category1,category2,category3,category4\n";
-    echo "  php bin/benchmark.php --adapter=all --type=both --items=10000 --report=report.html\n";
-    echo "  php bin/benchmark.php --adapter=all --type=both --items=10000 --chart=benchmark.svg\n";
+    echo "  php bin/benchmark.php --items=100000\n";
+    echo "  php bin/benchmark.php --items=10000 --report=report.html --chart=benchmark.svg\n";
 }
 
+/**
+ * @return array{items: int, host: string, port: int, tags: int, counters: int, report: ?string, chart: ?string, help: bool}
+ */
 function parseArguments(): array
 {
-    $options = getopt('', [
-        'adapter::',    // Optional adapter (rapid-cache, symfony-igbinary, symfony-json, all)
-        'items::',      // Optional number of items (default: 1000)
-        'host::',       // Optional Redis host (default: localhost)
-        'port::',       // Optional Redis port (default: 6381)
-        'type::',       // Optional benchmark type (basic, tagged)
-        'tags::',       // Optional comma-separated list of tags for tagged benchmarks
-        'report::',     // Optional HTML report output path
-        'chart::'       // Optional static SVG chart output path
-    ]);    $args = $_SERVER['argv'] ?? [];
+    $defaults = [
+        'items' => 100000,
+        'host' => 'localhost',
+        'port' => 6381,
+        'tags' => 4,
+        'counters' => 1000,
+        'report' => null,
+        'chart' => null,
+        'help' => false,
+    ];
 
-    foreach ($args as $arg) {
-        if (str_starts_with($arg, '--')) {
-            $parts = explode('=', $arg, 2);
-            $key = substr($parts[0], 2);
+    $options = $defaults;
+    foreach ($_SERVER['argv'] ?? [] as $arg) {
+        if (!str_starts_with($arg, '--')) {
+            continue;
+        }
+        $parts = explode('=', substr($arg, 2), 2);
+        $key = $parts[0];
 
-            if ($key === 'help') {
-                $options['help'] = true;
-            } elseif (isset($parts[1])) {
-                $value = $parts[1];
-
-                switch ($key) {
-                    case 'items':
-                    case 'port':
-                        $options[$key] = (int)$value;
-                        break;
-                    default:
-                        $options[$key] = $value;
-                        break;
-                }
-            }
+        if ($key === 'help') {
+            $options['help'] = true;
+        } elseif (array_key_exists($key, $defaults) && isset($parts[1])) {
+            $options[$key] = match ($key) {
+                'items', 'port', 'tags', 'counters' => (int) $parts[1],
+                default => $parts[1],
+            };
         }
     }
 
-    return array_merge([
-        'adapter' => 'all',
-        'items' => 100000,
-        'host' => 'localhost',
-        'port' => 6380,
-        'type' => 'basic',
-        'tags' => 'tag1,tag2,tag3,tag4',
-        'report' => null,
-        'chart' => null,
-    ], $options);
-}
-
-function createAdapter(string $name, string $host, int $port): ?object
-{
-    switch ($name) {
-        case 'rapid-cache':
-            return new RapidCacheAdapter($host, $port);
-        case 'symfony-igbinary':
-            return new SymfonyCacheIgbinaryAdapter($host, $port);
-        case 'symfony-json':
-            return new SymfonyCacheJsonAdapter($host, $port);
-        default:
-            return null;
-    }
+    return $options;
 }
 
 function main(): void
 {
     $options = parseArguments();
 
-    if (isset($options['help']) && $options['help']) {
+    if ($options['help']) {
         showHelp();
         exit(0);
     }
 
-    echo "=== Cache Benchmark Tool ===\n";
+    echo "=== IDCT Rapid Cache — Feature Benchmark ===\n";
     echo "Items: {$options['items']}\n";
     echo "Redis: {$options['host']}:{$options['port']}\n\n";
 
-    // Test Redis connection
     try {
         $redis = new Redis();
-        $connected = $redis->connect($options['host'], $options['port']);
-        if (!$connected) {
-            throw new Exception("Could not connect to Redis");
+        if (!$redis->connect($options['host'], $options['port'])) {
+            throw new Exception('Could not connect to Redis');
         }
         $redis->ping();
         $redis->close();
@@ -126,75 +95,27 @@ function main(): void
         exit(1);
     }
 
+    $cache = new RapidCacheClient($options['host'], $options['port'], 'rapid-cache:');
+
     $runner = new BenchmarkRunner();
-    $tags = explode(',', $options['tags']);
-    $taggedResults = [];
-    $basicResults = [];
+    $results = $runner->run($cache, $options['items'], $options['tags'], $options['counters']);
 
-    if ($options['type'] === 'tagged' || $options['type'] === 'both') {
-        if ($options['adapter'] === 'all') {
-            $adapters = array_filter([
-                createAdapter('rapid-cache', $options['host'], $options['port']),
-                createAdapter('symfony-igbinary', $options['host'], $options['port']),
-                createAdapter('symfony-json', $options['host'], $options['port']),
-            ]);
-            $taggedResults = $runner->runAllTaggedBenchmarks($adapters, $options['items'], $tags);
-        } else {
-            $adapter = createAdapter($options['adapter'], $options['host'], $options['port']);
-            if ($adapter === null) {
-                echo "Error: Unknown adapter '{$options['adapter']}'\n";
-                echo "Available adapters: rapid-cache, symfony-igbinary, symfony-json, all\n";
-                exit(1);
-            }
-            $taggedResults = [$runner->runTaggedBenchmark($adapter, $options['items'], $tags)];
-        }
-    }
-
-    if ($options['type'] === 'basic' || $options['type'] === 'both') {
-        if ($options['adapter'] === 'all') {
-            $adapters = array_filter([
-                createAdapter('rapid-cache', $options['host'], $options['port']),
-                createAdapter('symfony-igbinary', $options['host'], $options['port']),
-                createAdapter('symfony-json', $options['host'], $options['port']),
-            ]);
-            $basicResults = $runner->runAll($adapters, $options['items']);
-        } else {
-            $adapter = createAdapter($options['adapter'], $options['host'], $options['port']);
-            if ($adapter === null) {
-                echo "Error: Unknown adapter '{$options['adapter']}'\n";
-                echo "Available adapters: rapid-cache, symfony-igbinary, symfony-json, all\n";
-                exit(1);
-            }
-            $basicResults = [$runner->run($adapter, $options['items'])];
-        }
-    }
-
-    if (!empty($options['report']) || !empty($options['chart'])) {
+    if ($options['report'] !== null || $options['chart'] !== null) {
         $context = [
             'items' => $options['items'],
             'host' => $options['host'],
             'port' => $options['port'],
-            'tags' => $tags,
+            'system' => SystemInfo::detect(),
             'generatedAt' => new DateTimeImmutable(),
         ];
 
-        if (!empty($options['report'])) {
-            (new HtmlReportGenerator())->generate(
-                outputPath: $options['report'],
-                context: $context,
-                basicResults: $basicResults,
-                taggedResults: $taggedResults,
-            );
+        if ($options['report'] !== null) {
+            (new HtmlReportGenerator())->generate($options['report'], $context, $results);
             echo "\n✓ HTML report written to {$options['report']}\n";
         }
 
-        if (!empty($options['chart'])) {
-            (new SvgChartGenerator())->generate(
-                outputPath: $options['chart'],
-                context: $context,
-                basicResults: $basicResults,
-                taggedResults: $taggedResults,
-            );
+        if ($options['chart'] !== null) {
+            (new SvgChartGenerator())->generate($options['chart'], $context, $results);
             echo "\n✓ SVG chart written to {$options['chart']}\n";
         }
     }

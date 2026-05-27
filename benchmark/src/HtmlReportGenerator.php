@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace IDCT\RapidCacheBenchmark;
 
 /**
- * Renders a self-contained HTML report (table + bar chart) for a benchmark run.
+ * Renders a self-contained HTML report (table + bar charts) for a RapidCache
+ * feature run.
  *
- * The chart uses Chart.js loaded from a CDN — no build step, no local assets.
+ * The chart uses Chart.js loaded from a CDN - no build step, no local assets.
  * The output file is openable from `file://` and works offline once the CDN
  * script is cached by the browser.
  */
@@ -15,25 +16,22 @@ class HtmlReportGenerator
 {
     private const CHART_JS_CDN = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js';
 
+    /** @var array<string, array{bg: string, border: string}> */
+    private const PALETTE = [
+        'Core'     => ['bg' => 'rgba(59, 130, 246, 0.75)', 'border' => 'rgb(37, 99, 235)'],
+        'Tagging'  => ['bg' => 'rgba(16, 185, 129, 0.75)', 'border' => 'rgb(5, 150, 105)'],
+        'Counters' => ['bg' => 'rgba(245, 158, 11, 0.75)', 'border' => 'rgb(217, 119, 6)'],
+    ];
+    private const DEFAULT_COLOR = ['bg' => 'rgba(107, 114, 128, 0.75)', 'border' => 'rgb(75, 85, 99)'];
+
     /**
-     * @param array{
-     *     items: int,
-     *     host: string,
-     *     port: int,
-     *     tags: list<string>,
-     *     generatedAt?: \DateTimeImmutable
-     * } $context
-     * @param list<BenchmarkResult> $basicResults
-     * @param list<TaggedBenchmarkResult> $taggedResults
+     * @param array{items: int, host: string, port: int, system?: SystemInfo, generatedAt?: \DateTimeImmutable} $context
+     * @param list<OperationResult> $results
      */
-    public function generate(
-        string $outputPath,
-        array $context,
-        array $basicResults = [],
-        array $taggedResults = [],
-    ): void {
+    public function generate(string $outputPath, array $context, array $results): void
+    {
         $generatedAt = $context['generatedAt'] ?? new \DateTimeImmutable();
-        $html = $this->render($context, $generatedAt, $basicResults, $taggedResults);
+        $html = $this->render($context, $generatedAt, $results);
 
         $bytesWritten = file_put_contents($outputPath, $html);
         if ($bytesWritten === false) {
@@ -42,41 +40,24 @@ class HtmlReportGenerator
     }
 
     /**
-     * @param array{items: int, host: string, port: int, tags: list<string>} $context
-     * @param list<BenchmarkResult> $basicResults
-     * @param list<TaggedBenchmarkResult> $taggedResults
+     * @param array{items: int, host: string, port: int} $context
+     * @param list<OperationResult> $results
      */
-    private function render(
-        array $context,
-        \DateTimeImmutable $generatedAt,
-        array $basicResults,
-        array $taggedResults,
-    ): string {
+    private function render(array $context, \DateTimeImmutable $generatedAt, array $results): string
+    {
         $css = $this->css();
         $body = $this->header($context, $generatedAt);
 
-        if ($taggedResults !== []) {
-            $body .= $this->section(
-                title: 'Tagged Benchmark',
-                description: 'Tagged SET/GET operations — items are stored under a tag and bulk-retrieved by tag.',
-                results: array_map(fn(TaggedBenchmarkResult $r) => $r->toArray(), $taggedResults),
-                chartIdPrefix: 'tagged',
-                includeAccuracyColumn: true,
-            );
-        }
-
-        if ($basicResults !== []) {
-            $body .= $this->section(
-                title: 'Basic Benchmark',
-                description: 'Plain key/value SET and GET without tagging.',
-                results: array_map(fn(BenchmarkResult $r) => $r->toArray(), $basicResults),
-                chartIdPrefix: 'basic',
-                includeAccuracyColumn: false,
-            );
-        }
-
-        if ($taggedResults === [] && $basicResults === []) {
+        if ($results === []) {
             $body .= '<p class="empty">No benchmark results captured.</p>';
+        } else {
+            /** @var array<string, list<OperationResult>> $byCategory */
+            $byCategory = [];
+            foreach ($results as $result) {
+                $byCategory[$result->category][] = $result;
+            }
+            $body .= $this->tableSection($byCategory);
+            $body .= $this->chartSection($byCategory);
         }
 
         return <<<HTML
@@ -84,7 +65,7 @@ class HtmlReportGenerator
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>IDCT Rapid Cache — Benchmark Report</title>
+    <title>IDCT Rapid Cache — Feature Benchmark</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="{$this->h(self::CHART_JS_CDN)}"></script>
     <style>{$css}</style>
@@ -99,164 +80,120 @@ HTML;
     }
 
     /**
-     * @param array{items: int, host: string, port: int, tags: list<string>} $context
+     * @param array{items: int, host: string, port: int, system?: SystemInfo} $context
      */
     private function header(array $context, \DateTimeImmutable $generatedAt): string
     {
-        $tags = $this->h(implode(', ', $context['tags']));
         $host = $this->h($context['host']);
         $port = $context['port'];
         $items = number_format($context['items']);
         $when = $this->h($generatedAt->format('Y-m-d H:i:s T'));
 
+        $system = $context['system'] ?? null;
+        $systemRows = '';
+        if ($system instanceof SystemInfo) {
+            $systemRows = sprintf(
+                "\n        <dt>CPU</dt><dd>%s</dd>\n        <dt>Memory</dt><dd>%s</dd>\n        <dt>Environment</dt><dd>%s</dd>",
+                $this->h($system->cpuLabel()),
+                $this->h($system->memoryLabel()),
+                $this->h($system->environment()),
+            );
+        }
+
         return <<<HTML
 <header>
-    <h1>IDCT Rapid Cache — Benchmark Report</h1>
+    <h1>IDCT Rapid Cache — Feature Benchmark</h1>
+    <p class="lede">Throughput of RapidCache's own operations. No cross-library comparison — just how many of each operation the library sustains per second on this host.</p>
     <dl class="meta">
         <dt>Generated</dt><dd>{$when}</dd>
-        <dt>Items per adapter</dt><dd>{$items}</dd>
-        <dt>Redis endpoint</dt><dd>{$host}:{$port}</dd>
-        <dt>Tags</dt><dd>{$tags}</dd>
+        <dt>Items per operation</dt><dd>{$items}</dd>
+        <dt>Redis endpoint</dt><dd>{$host}:{$port}</dd>{$systemRows}
     </dl>
 </header>
 HTML;
     }
 
     /**
-     * @param list<array<string, mixed>> $results
+     * @param array<string, list<OperationResult>> $byCategory
      */
-    private function section(
-        string $title,
-        string $description,
-        array $results,
-        string $chartIdPrefix,
-        bool $includeAccuracyColumn,
-    ): string {
-        $table = $this->renderTable($results, $includeAccuracyColumn);
-        $titleH = $this->h($title);
-        $descH = $this->h($description);
-
-        // Three small charts side-by-side, one per metric. Each chart owns its
-        // own y-axis so SET (≈ thousands) doesn't get steamrolled by GET
-        // (≈ hundreds of thousands) on the tagged side.
-        $charts = [
-            ['id' => "{$chartIdPrefix}SetChart",   'metric' => 'set_throughput',   'label' => 'SET ops/sec',   'color' => 'blue'],
-            ['id' => "{$chartIdPrefix}GetChart",   'metric' => 'get_throughput',   'label' => 'GET ops/sec',   'color' => 'green'],
-            ['id' => "{$chartIdPrefix}TotalChart", 'metric' => 'total_throughput', 'label' => 'Total ops/sec', 'color' => 'amber'],
-        ];
-
-        $chartCanvases = '';
-        $chartScripts = '';
-        foreach ($charts as $chart) {
-            $idH = $this->h($chart['id']);
-            $labelH = $this->h($chart['label']);
-            $chartCanvases .= <<<HTML
-        <figure class="chart-card">
-            <figcaption>{$labelH}</figcaption>
-            <div class="chart-wrapper"><canvas id="{$idH}"></canvas></div>
-        </figure>
-
-HTML;
-            $chartScripts .= $this->renderSingleMetricChartScript(
-                $chart['id'],
-                $results,
-                $chart['metric'],
-                $chart['label'],
-                $chart['color'],
-            ) . "\n";
+    private function tableSection(array $byCategory): string
+    {
+        $rows = '';
+        foreach ($byCategory as $category => $results) {
+            foreach ($results as $r) {
+                $rows .= sprintf(
+                    "<tr><td>%s</td><th scope=\"row\"><code>%s</code></th><td class=\"num\">%s</td><td class=\"num\">%s</td><td class=\"note\">%s</td></tr>\n",
+                    $this->h($category),
+                    $this->h($r->operation),
+                    number_format($r->opsPerSec()),
+                    number_format($r->avgMicros(), 2),
+                    $this->h($r->note ?? ''),
+                );
+            }
         }
 
         return <<<HTML
 <section>
-    <h2>{$titleH}</h2>
-    <p class="description">{$descH}</p>
-    {$table}
-    <div class="chart-grid">
-{$chartCanvases}    </div>
-    <script>{$chartScripts}</script>
+    <h2>Results</h2>
+    <p class="description">Each operation is timed over the same item count. <code>avg µs</code> is the mean wall time per call.</p>
+    <table>
+<thead>
+<tr><th>Category</th><th>Operation</th><th>ops/sec</th><th>avg µs</th><th>Notes</th></tr>
+</thead>
+<tbody>
+{$rows}</tbody>
+    </table>
 </section>
 HTML;
     }
 
     /**
-     * @param list<array<string, mixed>> $results
+     * @param array<string, list<OperationResult>> $byCategory
      */
-    private function renderTable(array $results, bool $includeAccuracyColumn): string
+    private function chartSection(array $byCategory): string
     {
-        // Sort by total throughput desc — fastest first, same as the CLI output.
-        usort($results, fn(array $a, array $b) => $b['total_throughput'] <=> $a['total_throughput']);
+        $canvases = '';
+        $scripts = '';
+        $idx = 0;
+        foreach ($byCategory as $category => $results) {
+            $id = 'chart' . $idx++;
+            $labelH = $this->h($category);
+            $canvases .= <<<HTML
+        <figure class="chart-card">
+            <figcaption>{$labelH}</figcaption>
+            <div class="chart-wrapper"><canvas id="{$id}"></canvas></div>
+        </figure>
 
-        $accuracyHeader = $includeAccuracyColumn ? '<th>Accuracy %</th>' : '';
-        $headers = <<<HTML
-<thead>
-<tr>
-    <th>Adapter</th>
-    <th>SET ops/sec</th>
-    <th>GET ops/sec</th>
-    <th>Total ops/sec</th>
-    <th>Memory MB</th>
-    <th>Peak MB</th>
-    {$accuracyHeader}
-</tr>
-</thead>
 HTML;
-
-        $rows = '';
-        foreach ($results as $row) {
-            $accuracyCell = '';
-            if ($includeAccuracyColumn) {
-                $accuracy = isset($row['details']['retrieval_accuracy'])
-                    ? number_format((float) $row['details']['retrieval_accuracy'], 1)
-                    : '—';
-                $accuracyCell = "<td class=\"num\">{$this->h($accuracy)}</td>";
-            }
-
-            $rows .= sprintf(
-                "<tr><th scope=\"row\">%s</th><td class=\"num\">%s</td><td class=\"num\">%s</td><td class=\"num\">%s</td><td class=\"num\">%s</td><td class=\"num\">%s</td>%s</tr>\n",
-                $this->h((string) $row['adapter']),
-                number_format((float) $row['set_throughput']),
-                number_format((float) $row['get_throughput']),
-                number_format((float) $row['total_throughput']),
-                number_format((float) $row['memory_usage_mb'], 2),
-                number_format((float) $row['peak_memory_mb'], 2),
-                $accuracyCell,
-            );
+            $scripts .= $this->chartScript($id, $category, $results) . "\n";
         }
 
-        return "<table>{$headers}<tbody>\n{$rows}</tbody></table>";
+        return <<<HTML
+<section>
+    <h2>Throughput by category</h2>
+    <p class="description">One chart per category; each bar is one operation (ops/sec, higher is better). Scales are independent per category.</p>
+    <div class="chart-grid">
+{$canvases}    </div>
+    <script>{$scripts}</script>
+</section>
+HTML;
     }
 
     /**
-     * Renders a single-metric bar chart on a linear y-axis (one bar per adapter).
-     *
-     * @param list<array<string, mixed>> $results
-     * @param 'blue'|'green'|'amber' $color
+     * @param list<OperationResult> $results
      */
-    private function renderSingleMetricChartScript(
-        string $chartId,
-        array $results,
-        string $metricKey,
-        string $label,
-        string $color,
-    ): string {
-        // Sort by the metric being plotted so the fastest is always the
-        // leftmost (most prominent) bar — makes the "profit" visually obvious.
-        usort($results, fn(array $a, array $b) => $b[$metricKey] <=> $a[$metricKey]);
-
-        $palette = [
-            'blue'  => ['bg' => 'rgba(59, 130, 246, 0.75)', 'border' => 'rgb(37, 99, 235)'],
-            'green' => ['bg' => 'rgba(16, 185, 129, 0.75)', 'border' => 'rgb(5, 150, 105)'],
-            'amber' => ['bg' => 'rgba(245, 158, 11, 0.75)', 'border' => 'rgb(217, 119, 6)'],
-        ];
-        $colors = $palette[$color];
+    private function chartScript(string $chartId, string $category, array $results): string
+    {
+        usort($results, fn(OperationResult $a, OperationResult $b) => $b->opsPerSec() <=> $a->opsPerSec());
+        $colors = self::PALETTE[$category] ?? self::DEFAULT_COLOR;
 
         $config = [
             'type' => 'bar',
             'data' => [
-                'labels' => array_map(fn(array $r) => $r['adapter'], $results),
+                'labels' => array_map(fn(OperationResult $r) => $r->operation, $results),
                 'datasets' => [[
-                    'label' => $label,
-                    'data' => array_map(fn(array $r) => $r[$metricKey], $results),
+                    'label' => $category . ' ops/sec',
+                    'data' => array_map(fn(OperationResult $r) => round($r->opsPerSec(), 2), $results),
                     'backgroundColor' => $colors['bg'],
                     'borderColor' => $colors['border'],
                     'borderWidth' => 1,
@@ -296,15 +233,9 @@ body {
     color: #111827;
     line-height: 1.5;
 }
-main {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 2rem 1.5rem;
-}
-header h1 {
-    margin: 0 0 0.75rem;
-    font-size: 1.75rem;
-}
+main { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+header h1 { margin: 0 0 0.5rem; font-size: 1.75rem; }
+p.lede { margin: 0 0 1.25rem; color: #4b5563; max-width: 70ch; }
 dl.meta {
     display: grid;
     grid-template-columns: max-content 1fr;
@@ -326,17 +257,8 @@ section {
 }
 section h2 { margin: 0 0 0.25rem; font-size: 1.4rem; }
 p.description { margin: 0 0 1.25rem; color: #4b5563; }
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 1.5rem;
-    font-size: 0.95rem;
-}
-th, td {
-    padding: 0.6rem 0.75rem;
-    border-bottom: 1px solid #f3f4f6;
-    text-align: left;
-}
+table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+th, td { padding: 0.6rem 0.75rem; border-bottom: 1px solid #f3f4f6; text-align: left; }
 thead th {
     background: #f3f4f6;
     border-bottom: 2px solid #d1d5db;
@@ -347,32 +269,17 @@ thead th {
 }
 tbody tr:nth-child(odd) { background: #fcfcfd; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+td.note { color: #6b7280; font-size: 0.9rem; }
+code { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.9em; }
 .chart-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 1rem;
-    margin-bottom: 0.5rem;
 }
-.chart-card {
-    margin: 0;
-    padding: 0.75rem;
-    background: #fcfcfd;
-    border: 1px solid #f3f4f6;
-    border-radius: 6px;
-}
-.chart-card figcaption {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #374151;
-    margin-bottom: 0.5rem;
-    text-align: center;
-}
-.chart-wrapper {
-    position: relative;
-    height: 240px;
-}
-.hint { margin: 0; font-size: 0.85rem; color: #6b7280; }
-.empty { padding: 2rem; text-align: center; color: #6b7280; background: #fff; border: 1px dashed #d1d5db; border-radius: 8px; }
+.chart-card { margin: 0; padding: 0.75rem; background: #fcfcfd; border: 1px solid #f3f4f6; border-radius: 6px; }
+.chart-card figcaption { font-weight: 600; color: #374151; margin-bottom: 0.5rem; }
+.chart-wrapper { position: relative; height: 240px; }
+p.empty { color: #6b7280; }
 CSS;
     }
 

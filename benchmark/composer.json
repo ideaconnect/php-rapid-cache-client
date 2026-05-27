@@ -1,6 +1,6 @@
 {
     "name": "idct/rapid-cache-benchmark",
-    "description": "Benchmark comparison between IDCT Rapid Cache and other Redis cache implementations",
+    "description": "Throughput benchmark for IDCT Rapid Cache's own operations (Core, Tagging, Counters)",
     "type": "project",
     "require": {
         "php": "^8.5",
@@ -8,8 +8,6 @@
         "ext-redis": "*",
         "ext-json": "*",
         "idct/php-rapid-cache-client": "*",
-        "symfony/cache": "^8.0",
-        "symfony/console": "^8.0",
         "monolog/monolog": "^3.0"
     },
     "autoload": {
@@ -24,12 +22,7 @@
         }
     ],
     "scripts": {
-        "benchmark": "php bin/benchmark.php",
-        "benchmark:all": [
-            "php bin/benchmark.php --adapter=rapid-cache",
-            "php bin/benchmark.php --adapter=symfony-igbinary",
-            "php bin/benchmark.php --adapter=symfony-json"
-        ]
+        "benchmark": "php bin/benchmark.php"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,

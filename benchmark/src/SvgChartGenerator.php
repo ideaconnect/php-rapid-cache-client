@@ -5,18 +5,17 @@ declare(strict_types=1);
 namespace IDCT\RapidCacheBenchmark;
 
 /**
- * Renders a static, self-contained SVG bar chart for a benchmark run.
+ * Renders a static, self-contained SVG bar chart for a RapidCache feature run.
  *
  * Unlike {@see HtmlReportGenerator} (which draws with Chart.js at runtime),
- * this emits a plain `<svg>` with no scripts — so it renders inline on GitHub
+ * this emits a plain `<svg>` with no scripts - so it renders inline on GitHub
  * (README, issues) and anywhere else that strips JavaScript. The output is
  * deterministic for a given set of results, which keeps committed/published
  * images diff-friendly.
  *
- * Layout: one horizontal-bar panel per metric (SET / GET / Total), one bar per
- * adapter. Each panel owns its own scale so the small-magnitude metric (e.g.
- * tagged SET, ~thousands) is not flattened by the large one (GET, ~hundreds of
- * thousands) — the same reasoning as the multi-chart HTML report.
+ * Layout: one panel per category (Core / Tagging / Counters), one horizontal
+ * bar per operation. Each panel owns its own scale so a high-throughput
+ * category (counters) doesn't flatten a slower one (tagged writes).
  */
 class SvgChartGenerator
 {
@@ -24,52 +23,33 @@ class SvgChartGenerator
 
     // Horizontal layout (px).
     private const PAD_X = 24;
-    private const LABEL_COL_W = 168;   // adapter-name gutter, right-aligned
-    private const VALUE_COL_W = 96;    // room for the value printed after a bar
+    private const LABEL_COL_W = 184;   // operation-name gutter, right-aligned
+    private const VALUE_COL_W = 150;   // room for the value printed after a bar
 
     // Vertical rhythm (px).
-    private const BAR_H = 26;
-    private const BAR_GAP = 12;
-    private const PANEL_TITLE_H = 26;
-    private const PANEL_GAP = 18;
-    private const SECTION_TITLE_H = 34;
-    private const SECTION_GAP = 12;
-    private const HEADER_H = 92;
-    private const FOOTER_PAD = 16;
+    private const BAR_H = 24;
+    private const BAR_GAP = 10;
+    private const PANEL_TITLE_H = 28;
+    private const PANEL_GAP = 22;
+    private const HEADER_H = 110;
+    private const FOOTER_PAD = 20;
 
-    /** @var array<string, array{0: string, 1: string}> metric color => [fill, stroke] */
+    /** @var array<string, array{0: string, 1: string}> category => [fill, stroke] */
     private const PALETTE = [
-        'blue'  => ['rgb(59, 130, 246)', 'rgb(37, 99, 235)'],
-        'green' => ['rgb(16, 185, 129)', 'rgb(5, 150, 105)'],
-        'amber' => ['rgb(245, 158, 11)', 'rgb(217, 119, 6)'],
+        'Core'     => ['rgb(59, 130, 246)', 'rgb(37, 99, 235)'],
+        'Tagging'  => ['rgb(16, 185, 129)', 'rgb(5, 150, 105)'],
+        'Counters' => ['rgb(245, 158, 11)', 'rgb(217, 119, 6)'],
     ];
-
-    /** @var list<array{metric: string, label: string, color: string}> */
-    private const METRICS = [
-        ['metric' => 'set_throughput',   'label' => 'SET ops/sec',   'color' => 'blue'],
-        ['metric' => 'get_throughput',   'label' => 'GET ops/sec',   'color' => 'green'],
-        ['metric' => 'total_throughput', 'label' => 'Total ops/sec', 'color' => 'amber'],
-    ];
+    private const DEFAULT_COLOR = ['rgb(107, 114, 128)', 'rgb(75, 85, 99)'];
 
     /**
-     * @param array{
-     *     items: int,
-     *     host: string,
-     *     port: int,
-     *     tags: list<string>,
-     *     generatedAt?: \DateTimeImmutable
-     * } $context
-     * @param list<BenchmarkResult> $basicResults
-     * @param list<TaggedBenchmarkResult> $taggedResults
+     * @param array{items: int, host: string, port: int, system?: SystemInfo, generatedAt?: \DateTimeImmutable} $context
+     * @param list<OperationResult> $results
      */
-    public function generate(
-        string $outputPath,
-        array $context,
-        array $basicResults = [],
-        array $taggedResults = [],
-    ): void {
+    public function generate(string $outputPath, array $context, array $results): void
+    {
         $generatedAt = $context['generatedAt'] ?? new \DateTimeImmutable();
-        $svg = $this->render($context, $generatedAt, $basicResults, $taggedResults);
+        $svg = $this->render($context, $generatedAt, $results);
 
         $bytesWritten = file_put_contents($outputPath, $svg);
         if ($bytesWritten === false) {
@@ -78,40 +58,26 @@ class SvgChartGenerator
     }
 
     /**
-     * @param array{items: int, host: string, port: int, tags: list<string>} $context
-     * @param list<BenchmarkResult> $basicResults
-     * @param list<TaggedBenchmarkResult> $taggedResults
+     * @param array{items: int, host: string, port: int, system?: SystemInfo} $context
+     * @param list<OperationResult> $results
      */
-    private function render(
-        array $context,
-        \DateTimeImmutable $generatedAt,
-        array $basicResults,
-        array $taggedResults,
-    ): string {
-        /** @var list<array{title: string, results: list<array<string, mixed>>}> $sections */
-        $sections = [];
-        if ($taggedResults !== []) {
-            $sections[] = [
-                'title' => 'Tagged Benchmark',
-                'results' => array_map(fn(TaggedBenchmarkResult $r) => $r->toArray(), $taggedResults),
-            ];
-        }
-        if ($basicResults !== []) {
-            $sections[] = [
-                'title' => 'Basic Benchmark',
-                'results' => array_map(fn(BenchmarkResult $r) => $r->toArray(), $basicResults),
-            ];
+    private function render(array $context, \DateTimeImmutable $generatedAt, array $results): string
+    {
+        /** @var array<string, list<OperationResult>> $byCategory */
+        $byCategory = [];
+        foreach ($results as $result) {
+            $byCategory[$result->category][] = $result;
         }
 
         $body = '';
         $y = self::HEADER_H;
-        foreach ($sections as $section) {
-            $rendered = $this->renderSection($section['title'], $section['results'], $y);
+        foreach ($byCategory as $category => $rows) {
+            $rendered = $this->renderPanel($category, $rows, $y);
             $body .= $rendered['svg'];
-            $y = $rendered['nextY'] + self::SECTION_GAP;
+            $y = $rendered['nextY'] + self::PANEL_GAP;
         }
 
-        if ($sections === []) {
+        if ($byCategory === []) {
             $body .= $this->text(self::PAD_X, $y + 20, 'No benchmark results captured.', 14, '#6b7280');
             $y += 40;
         }
@@ -131,26 +97,30 @@ SVG;
     }
 
     /**
-     * @param array{items: int, host: string, port: int, tags: list<string>} $context
+     * @param array{items: int, host: string, port: int, system?: SystemInfo} $context
      */
     private function renderHeader(array $context, \DateTimeImmutable $generatedAt): string
     {
         $items = number_format($context['items']);
         $when = $generatedAt->format('Y-m-d H:i:s T');
-        $tags = implode(', ', $context['tags']);
         $meta = sprintf(
-            '%s items per adapter  ·  %s:%d  ·  tags: %s  ·  %s',
+            '%s items  ·  %s:%d  ·  %s  ·  ops/sec, higher is better',
             $items,
             $context['host'],
             $context['port'],
-            $tags,
             $when,
         );
 
-        $svg  = $this->text(self::PAD_X, 36, 'IDCT Rapid Cache — Benchmark', 22, '#111827', 'bold');
-        $svg .= $this->text(self::PAD_X, 60, $meta, 12, '#6b7280');
+        $system = $context['system'] ?? null;
+        $systemLine = $system instanceof SystemInfo ? $system->summaryLine() : '';
+
+        $svg  = $this->text(self::PAD_X, 34, 'IDCT Rapid Cache — Feature Benchmark', 22, '#111827', 'bold');
+        $svg .= $this->text(self::PAD_X, 58, $meta, 12, '#6b7280');
+        if ($systemLine !== '') {
+            $svg .= $this->text(self::PAD_X, 78, $systemLine, 12, '#6b7280');
+        }
         $svg .= sprintf(
-            '  <line x1="%d" y1="74" x2="%d" y2="74" stroke="#e5e7eb" stroke-width="1"/>' . "\n",
+            '  <line x1="%d" y1="92" x2="%d" y2="92" stroke="#e5e7eb" stroke-width="1"/>' . "\n",
             self::PAD_X,
             self::WIDTH - self::PAD_X,
         );
@@ -159,62 +129,39 @@ SVG;
     }
 
     /**
-     * @param list<array<string, mixed>> $results
-     * @return array{svg: string, nextY: float}
-     */
-    private function renderSection(string $title, array $results, float $startY): array
-    {
-        $svg = $this->text(self::PAD_X, $startY + 22, $title, 17, '#111827', 'bold');
-        $y = $startY + self::SECTION_TITLE_H;
-
-        foreach (self::METRICS as $metric) {
-            $rendered = $this->renderPanel($results, $metric['metric'], $metric['label'], $metric['color'], $y);
-            $svg .= $rendered['svg'];
-            $y = $rendered['nextY'] + self::PANEL_GAP;
-        }
-
-        return ['svg' => $svg, 'nextY' => $y - self::PANEL_GAP];
-    }
-
-    /**
-     * Renders one metric as a horizontal bar group, one bar per adapter,
-     * sorted fastest-first so the winning bar is on top.
+     * Renders one category as a horizontal bar group, one bar per operation,
+     * sorted fastest-first. Scale is local to the category.
      *
-     * @param list<array<string, mixed>> $results
+     * @param list<OperationResult> $rows
      * @return array{svg: string, nextY: float}
      */
-    private function renderPanel(
-        array $results,
-        string $metricKey,
-        string $label,
-        string $color,
-        float $startY,
-    ): array {
-        usort($results, fn(array $a, array $b) => (float) $b[$metricKey] <=> (float) $a[$metricKey]);
+    private function renderPanel(string $category, array $rows, float $startY): array
+    {
+        usort($rows, fn(OperationResult $a, OperationResult $b) => $b->opsPerSec() <=> $a->opsPerSec());
 
-        [$fill, $stroke] = self::PALETTE[$color];
+        [$fill, $stroke] = self::PALETTE[$category] ?? self::DEFAULT_COLOR;
         $maxValue = 0.0;
-        foreach ($results as $row) {
-            $maxValue = max($maxValue, (float) $row[$metricKey]);
+        foreach ($rows as $row) {
+            $maxValue = max($maxValue, $row->opsPerSec());
         }
 
         $barAreaX = self::PAD_X + self::LABEL_COL_W;
         $barAreaW = self::WIDTH - $barAreaX - self::VALUE_COL_W - self::PAD_X;
 
-        $svg = $this->text(self::PAD_X, $startY + 16, $label, 13, '#374151', 'bold');
+        $svg = $this->text(self::PAD_X, $startY + 18, $category, 16, '#111827', 'bold');
         $y = $startY + self::PANEL_TITLE_H;
 
-        foreach ($results as $row) {
-            $value = (float) $row[$metricKey];
+        foreach ($rows as $row) {
+            $value = $row->opsPerSec();
             $barW = $maxValue > 0.0 ? (int) round($value / $maxValue * $barAreaW) : 0;
             $textY = $y + self::BAR_H / 2 + 4;
 
-            // Adapter name in the right-aligned gutter.
+            // Operation name in the right-aligned gutter.
             $svg .= sprintf(
                 '  <text x="%d" y="%.1f" font-size="12" fill="#374151" text-anchor="end">%s</text>' . "\n",
                 $barAreaX - 10,
                 $textY,
-                $this->h((string) $row['adapter']),
+                $this->h($row->operation),
             );
 
             // Bar (min 1px so a non-zero value is always visible).
@@ -230,7 +177,7 @@ SVG;
 
             // Value printed just past the bar end.
             $svg .= sprintf(
-                '  <text x="%d" y="%.1f" font-size="12" fill="#111827" text-anchor="start">%s</text>' . "\n",
+                '  <text x="%d" y="%.1f" font-size="12" fill="#111827" text-anchor="start">%s ops/sec</text>' . "\n",
                 $barAreaX + max($barW, 1) + 8,
                 $textY,
                 $this->h(number_format($value)),
