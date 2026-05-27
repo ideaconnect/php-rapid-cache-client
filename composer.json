@@ -1,17 +1,24 @@
 {
     "name": "idct/php-rapid-cache-client",
-    "description": "Caching service",
+    "description": "High-performance Redis/Valkey-backed PSR-16 cache client for PHP, extended with tag-based invalidation, queues, sets, sorted sets, and atomic counters.",
     "type": "library",
     "license": "MIT",
+    "keywords": [
+        "cache",
+        "psr-16",
+        "simple-cache",
+        "redis",
+        "valkey",
+        "phpredis",
+        "igbinary",
+        "tagging",
+        "queue",
+        "performance"
+    ],
     "authors": [
         {
             "name": "IDCT Bartosz Pachołek",
             "email": "bartosz+github@idct.tech",
-            "role": "Developer"
-        },
-        {
-            "name": "Karol from Praetorian Technology",
-            "email": "karol@praetorian.technology",
             "role": "Developer"
         }
     ],
