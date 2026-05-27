@@ -185,6 +185,20 @@ jobs:
         # Run Behat tests
         php vendor/bin/behat --strict --no-interaction
 
+    - name: Mutation Testing (Infection)
+      # Mutation testing is slow and version-independent, so we run it once on
+      # the minimum supported PHP rather than across the whole matrix. We invoke
+      # Infection directly (not `composer test:mutation`) to reuse the Valkey
+      # container already started above — the composer script would stop it.
+      # Infection fails the build when MSI drops below the thresholds in
+      # infection.json (minMsi 90, minCoveredMsi 93).
+      if: matrix.php-version == '8.2'
+      env:
+        REDIS_HOST: localhost
+        REDIS_PORT: 6380
+        XDEBUG_MODE: coverage
+      run: php vendor/bin/infection --threads=max --no-progress --no-interaction
+
     - name: Test Summary
       if: success()
       run: |
@@ -192,6 +206,9 @@ jobs:
         echo "✅ Unit tests: PASSED with 100% coverage"
         echo "✅ Functional tests: PASSED"
         echo "✅ PHP ${{ matrix.php-version }}: COMPATIBLE"
+        if [ "${{ matrix.php-version }}" = "8.2" ]; then
+          echo "✅ Mutation testing: PASSED (MSI thresholds met)"
+        fi
 
     - name: Stop Redis/Valkey
       if: always()

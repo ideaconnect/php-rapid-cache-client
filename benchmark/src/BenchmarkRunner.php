@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Praetorian\CacheBenchmark;
+namespace IDCT\RapidCacheBenchmark;
 
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
@@ -87,7 +87,7 @@ class BenchmarkRunner
         $totalTime = $setTime + $getTime;
 
         $result = new BenchmarkResult(
-            adapterName: $adapter->getName(),
+            adapterName: $adapter->getShortName(),
             itemCount: $itemCount,
             setTime: $setTime,
             getTime: $getTime,
@@ -277,7 +277,7 @@ class BenchmarkRunner
         $expectedItemsPerTag = $itemCount / count($tags);
 
         $result = new TaggedBenchmarkResult(
-            adapterName: $adapter->getName(),
+            adapterName: $adapter->getShortName(),
             itemCount: $itemCount,
             tagCount: count($tags),
             setTime: $setTime,

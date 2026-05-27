@@ -119,6 +119,7 @@
     "config": {
         "allow-plugins": {
             "infection/extension-installer": true
-        }
+        },
+        "process-timeout": 0
     }
 }

@@ -46,6 +46,20 @@ final class RedisConnectionConfig
      *                                    chunk inputs to this size. Bounds memory/latency on
      *                                    large inputs and keeps requests well under Redis's
      *                                    client-query-buffer-limit. Default 1000.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testAcceptsValidValues()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testDefaultsAreSafeForProduction()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testZeroTimeoutsAreAllowed()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testEmptyHostRejected()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testPortTooLowRejected()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testPortTooHighRejected()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testPortBoundariesAreAccepted()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testNegativeDatabaseRejected()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testNegativeConnectTimeoutRejected()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testNegativeReadTimeoutRejected()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testPipelineBatchSizeBelowOneRejected()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testPipelineBatchSizeDefaultIsThousand()
+     * @see \IDCT\Tests\Cache\Unit\RedisConnectionConfigTest::testPipelineBatchSizeOfOneIsAccepted()
      */
     public function __construct(
         public readonly string $host,

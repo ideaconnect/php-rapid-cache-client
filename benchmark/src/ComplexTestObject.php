@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Praetorian\CacheBenchmark;
+namespace IDCT\RapidCacheBenchmark;
 
 use DateTime;
 

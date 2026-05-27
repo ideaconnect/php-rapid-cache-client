@@ -1,0 +1,97 @@
+name: Benchmark
+
+# Runs the cache benchmark and publishes a static SVG chart that the README
+# embeds. The chart is both uploaded as a build artifact (for inspection) and
+# pushed to the `assets` branch, which gives it a stable raw URL:
+#   https://raw.githubusercontent.com/ideaconnect/php-rapid-cache-client/assets/benchmark.svg
+#
+# Triggered manually or weekly — never on push/PR — so benchmark noise stays out
+# of normal CI and the default branch history.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'  # Mondays, 06:00 UTC
+
+# Avoid two runs racing to push the assets branch.
+concurrency:
+  group: benchmark-chart
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # required to push the chart to the assets branch
+
+    services:
+      valkey:
+        image: valkey/valkey:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: igbinary, redis-phpredis/phpredis@6.2.0
+          tools: composer:v2
+        env:
+          REDIS_CONFIGURE_OPTS: '--enable-redis-igbinary'
+
+      - name: Install benchmark dependencies
+        working-directory: benchmark
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run benchmark and generate SVG chart
+        working-directory: benchmark
+        run: |
+          php bin/benchmark.php \
+            --adapter=all \
+            --type=both \
+            --items=100000 \
+            --host=127.0.0.1 \
+            --port=6379 \
+            --chart=benchmark.svg
+          test -s benchmark.svg
+
+      - name: Upload chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-chart
+          path: benchmark/benchmark.svg
+          if-no-files-found: error
+
+      - name: Publish chart to assets branch
+        run: |
+          cp benchmark/benchmark.svg "${RUNNER_TEMP}/benchmark.svg"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin assets >/dev/null 2>&1; then
+            git fetch origin assets
+            git checkout assets
+          else
+            git checkout --orphan assets
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          cp "${RUNNER_TEMP}/benchmark.svg" benchmark.svg
+          git add benchmark.svg
+
+          if git diff --cached --quiet; then
+            echo "Chart unchanged — nothing to publish."
+          else
+            git commit -m "Update benchmark chart [skip ci]"
+            git push origin assets
+          fi

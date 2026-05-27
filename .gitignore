@@ -50,13 +50,25 @@ Thumbs.db
 *.wmv
 
 
-/vendor/
+# Composer-installed dependencies — never commit these. Unanchored so it also
+# covers nested Composer projects such as benchmark/vendor/.
+vendor/
+
+# Composer lock files. The library itself does not pin a lock (consumers
+# resolve their own); the benchmark/ sub-project is likewise reproduced via
+# `composer install` on demand, so its lock is not tracked either. Unanchored
+# to match composer.lock at any depth.
+composer.lock
+
 /report/
 /.vscode/
 *.bak
 *.cache
-composer.lock
 coverage.txt
+
+# Benchmark generated artifacts (produced by `make benchmark*` in benchmark/).
+benchmark/report.html
+benchmark/*.svg
 
 # Infection mutation-testing artifacts
 .infection/

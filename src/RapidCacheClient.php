@@ -25,16 +25,56 @@ use function sprintf;
  */
 class RapidCacheClient implements CacheServiceInterface
 {
+    /** Standard Redis TCP port, used when the legacy constructor gets a null port. */
     public const DEFAULT_REDIS_PORT = 6379;
 
+    /**
+     * Tagging is built on a pair of mirrored Redis SETs ("dual index") so that
+     * both directions of the relationship can be resolved in O(1):
+     *
+     *   TAG:<tag>   -> SET of cache keys carrying that tag   (forward index)
+     *   TAGS:<key>  -> SET of tags attached to that key       (reverse index)
+     *
+     * The forward index ({@see TAG_KEY_SET_PREFIX}) powers {@see getTagged()}
+     * and {@see clearByTag()} ("give me every key for this tag"). The reverse
+     * index ({@see TAGS_SET_NAME_PREFIX}) powers cleanup ({@see unindexKey()}):
+     * when a key is deleted we must remove it from every tag set it belonged
+     * to, and without the reverse index that would require scanning all tags.
+     *
+     * Every tagging write touches both sets inside one MULTI/EXEC pipeline so
+     * the two indexes never drift apart. These prefixes are applied on top of
+     * any user-configured Redis::OPT_PREFIX, so they are namespaced per client.
+     */
     private const TAGS_SET_NAME_PREFIX = 'TAGS:';
+
+    /** @see TAGS_SET_NAME_PREFIX for the full description of the dual-index scheme. */
     private const TAG_KEY_SET_PREFIX = 'TAG:';
 
-    /** Reserved characters that PSR-16 forbids in cache keys. */
+    /**
+     * Characters PSR-16 reserves for future cache-driver extensions and which
+     * {@see validateKey()} therefore rejects. `:` is included because phpredis
+     * uses it as the conventional key-prefix separator, and `\` because
+     * igbinary payloads/key encodings can be corrupted by stray backslashes.
+     */
     private const RESERVED_KEY_CHARS = '{}()/\\@:';
 
+    /**
+     * The live phpredis handle, or null before the first connect / after a
+     * transport error nulled it in {@see wrap()}. Never read directly — go
+     * through {@see getRedis()} so a dropped connection is transparently
+     * re-established.
+     */
     private ?Redis $redis = null;
+
+    /** Immutable connection settings resolved once in the constructor. */
     private RedisConnectionConfig $config;
+
+    /**
+     * Re-entrancy guard for the retry-once logic in {@see wrap()}. It stops the
+     * single permitted retry from itself triggering another retry (which would
+     * turn one transient error into an unbounded retry loop). Set true only for
+     * the duration of the retry attempt.
+     */
     private bool $retrying = false;
 
     /**
@@ -55,6 +95,9 @@ class RapidCacheClient implements CacheServiceInterface
      * @throws \InvalidArgumentException When the legacy form produces an invalid
      *                                   {@see RedisConnectionConfig} (empty host, port
      *                                   out of range, etc.)
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testLegacyConstructorAppliesDefaultPortWhenNullGiven()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testLegacyConstructorPreservesExplicitPort()
      */
     public function __construct(
         string|RedisConnectionConfig $hostOrConfig,
@@ -82,6 +125,17 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws CacheException When connection or option-setup fails for any
      *                        non-engine reason.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testReconnectAppliesAllConfigFields()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testReconnectWithoutPasswordSkipsAuth()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testReconnectWithEmptyPasswordSkipsAuth()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testReconnectWithDatabaseZeroSkipsSelect()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testReconnectWithoutPrefixSkipsPrefixOption()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testReconnectWithZeroReadTimeoutSkipsReadTimeoutOption()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testReconnectUsesNonPersistentConnectByDefault()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testReconnectWrapsRedisExceptionAsCacheException()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testReconnectWrapsArbitraryThrowable()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testReconnectLetsErrorsPropagate()
      */
     protected function reconnect(): Redis
     {
@@ -108,8 +162,18 @@ class RapidCacheClient implements CacheServiceInterface
                 $redis->select($config->database);
             }
             if ($config->prefix !== null && $config->prefix !== '') {
+                // OPT_PREFIX makes phpredis transparently prepend this string to
+                // every key on the wire. Application code keeps using bare keys;
+                // the only place we must disable it is the raw SCAN/UNLINK pass
+                // in clear(), which works against fully-qualified key names.
                 $redis->setOption(Redis::OPT_PREFIX, $config->prefix);
             }
+            // The igbinary serializer is what lets arbitrary PHP values (objects,
+            // nested arrays, DateTime, …) round-trip losslessly: phpredis packs
+            // them on SET and unpacks on GET. It also drives one of this client's
+            // quirks — a stored literal `false` is indistinguishable from a cache
+            // miss at the protocol level (both surface as PHP `false`), which is
+            // why get()/getSorted() add an EXISTS probe to disambiguate.
             $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY);
         } catch (\Error $e) {
             // Engine-level errors (e.g. missing class, type errors) are bugs,
@@ -131,6 +195,8 @@ class RapidCacheClient implements CacheServiceInterface
      * Factory hook for the underlying phpredis instance. Override in tests or
      * subclasses to inject a mock/decorated Redis without touching the
      * connection lifecycle.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testCreateRedisInstanceReturnsRealRedis()
      */
     protected function createRedisInstance(): Redis
     {
@@ -168,6 +234,12 @@ class RapidCacheClient implements CacheServiceInterface
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key violates PSR-16
      *         (empty or contains reserved characters).
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetReturnsValueWhenExists()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetReturnsDefaultWhenTrulyMissing()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetReturnsStoredFalse()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetRejectsInvalidKey()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetWrapsRedisExceptionAsCacheException()
      */
     public function get(string $key, mixed $default = null): mixed
     {
@@ -197,6 +269,13 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetWithoutTtl()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetWithIntegerTtl()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetWithDateIntervalTtl()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetWithZeroTtlDeletesEntry()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetRejectsInvalidKey()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetWrapsRedisExceptionAsCacheException()
      */
     public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
     {
@@ -226,6 +305,9 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testDeleteRemovesTagAssociations()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testDeleteRejectsInvalidKey()
      */
     public function delete(string $key): bool
     {
@@ -248,6 +330,13 @@ class RapidCacheClient implements CacheServiceInterface
      * Without a prefix: FLUSHDB — wipes the entire database.
      *
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearWithoutPrefixUsesFlushDb()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearWithPrefixScansAndUnlinks()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearWithPrefixIteratesMultipleScanBatches()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearSkipsUnlinkOnEmptyBatch()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearBreaksOnScanFailure()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearRestoresPrefixAndScanOptionsEvenWhenScanThrows()
      */
     public function clear(): bool
     {
@@ -296,6 +385,10 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If any key is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetMultiple()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetMultipleChunksMGetByConfiguredBatchSize()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetMultipleWithEmptyKeysReturnsEmptyArrayWithoutRedisCall()
      */
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
@@ -338,6 +431,17 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If any key is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetMultipleWithoutTtlUsesMSet()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetMultipleWithTtlUsesPipelinedSetex()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetMultipleWithTtlChunksPipelineByConfiguredBatchSize()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetMultipleWithoutTtlChunksMSetByConfiguredBatchSize()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetMultipleWithoutTtlStopsOnFirstFailedChunk()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetMultipleReturnsFalseWhenExecReturnsNonArray()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetMultipleWithZeroTtlDeletesKeysAndSkipsWrites()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetMultipleWithZeroTtlUnindexesByOriginalKeysNotValues()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetMultipleWithNegativeTtlDeletesKeys()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetMultipleWithEmptyValuesReturnsTrueWithoutRedisCall()
      */
     public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
     {
@@ -399,6 +503,10 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If any key is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testDeleteMultiple()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testDeleteMultipleChunksDelByConfiguredBatchSize()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testDeleteMultipleWithEmptyKeysReturnsTrueWithoutRedisCall()
      */
     public function deleteMultiple(iterable $keys): bool
     {
@@ -432,6 +540,8 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testHas()
      */
     public function has(string $key): bool
     {
@@ -457,6 +567,13 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key or $tag is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetTagged()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetTaggedWithTtl()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetTaggedWithZeroTtlShortCircuitsToDeleteAndSkipsTagging()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetTaggedWithNegativeTtlShortCircuitsToDelete()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetTaggedReturnsFalseWhenSetFailsInPipeline()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetTaggedReturnsTrueWhenSetSucceedsEvenIfTagWritesAreNoOps()
      */
     public function setTagged(string $key, mixed $value, string $tag, null|int|DateInterval $ttl = null): bool
     {
@@ -501,6 +618,11 @@ class RapidCacheClient implements CacheServiceInterface
      * @throws \Psr\SimpleCache\InvalidArgumentException If $tag is invalid.
      * @throws CacheException On Redis transport/storage failures during the
      *         primary read phase.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetTaggedWithExistingItems()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetTaggedWithExpiredItems()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetTaggedWithNoItems()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetTaggedWrapsRedisExceptionFromGenerator()
      */
     public function getTagged(string $tag): Generator
     {
@@ -560,6 +682,10 @@ class RapidCacheClient implements CacheServiceInterface
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key or $tag is
      *         invalid, or if $key does not exist.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testTagExistingKey()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testTagNonExistingKey()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testTagRejectsInvalidTagName()
      */
     public function tag(string $key, string $tag): self
     {
@@ -591,6 +717,8 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key or $tag is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testUntag()
      */
     public function untag(string $key, string $tag): self
     {
@@ -619,6 +747,12 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $tag is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearByTag()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearByTagRemovesKeysFromOtherTagsToo()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearByTagEmptyTagSet()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearByTagChunksPhaseOneAndPhaseTwoByConfiguredBatchSize()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testClearByTagPadsReverseLookupsWhenPhaseOneExecReturnsNonArray()
      */
     public function clearByTag(string $tag): bool
     {
@@ -728,6 +862,11 @@ class RapidCacheClient implements CacheServiceInterface
      * @throws \Psr\SimpleCache\InvalidArgumentException If $queue is invalid
      *         or $value is null.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testEnqueue()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testEnqueueThrowsForNullValue()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testEnqueueRejectsInvalidQueueName()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testEnqueueWrapsRedisExceptionAsCacheException()
      */
     public function enqueue(string $queue, mixed $value): self
     {
@@ -752,6 +891,11 @@ class RapidCacheClient implements CacheServiceInterface
      * @throws \Psr\SimpleCache\InvalidArgumentException If $queue is invalid
      *         or $range < 1.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testPopSingleItem()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testPopSingleItemReturnsNullWhenEmpty()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testPopMultipleItems()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testPopRejectsNonPositiveRange()
      */
     public function pop(string $queue, int $range = 1): mixed
     {
@@ -779,6 +923,13 @@ class RapidCacheClient implements CacheServiceInterface
      * @throws \Psr\SimpleCache\InvalidArgumentException If $queue is invalid
      *         or $range < 1.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testPeekSingleItem()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testPeekSingleItemReturnsNullWhenEmpty()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testPeekMultipleItems()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testPeekMultipleReturnsArrayOfHeadItems()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testPeekMultipleReturnsNullWhenEmpty()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testPeekRejectsNonPositiveRange()
      */
     public function peek(string $queue, int $range = 1): mixed
     {
@@ -808,6 +959,9 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $queue is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetQueue()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetQueueWithEmptyQueue()
      */
     public function getQueue(string $queue): array
     {
@@ -823,6 +977,9 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $queue is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetQueueLength()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetQueueLengthCoercesFalseToZero()
      */
     public function getQueueLength(string $queue): int
     {
@@ -848,6 +1005,8 @@ class RapidCacheClient implements CacheServiceInterface
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
      * @throws CacheException On Redis transport/storage failures, including
      *         when the existing value is not a valid integer.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testIncrease()
      */
     public function increase(string $key, int $value): self
     {
@@ -869,6 +1028,8 @@ class RapidCacheClient implements CacheServiceInterface
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
      * @throws CacheException On Redis transport/storage failures, including
      *         when the existing value is not a valid integer.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testDecrease()
      */
     public function decrease(string $key, int $value): self
     {
@@ -893,6 +1054,9 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $set is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetCardinalityForRegularSet()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetCardinalityForSortedSet()
      */
     public function getCardinality(string $set, bool $sortedSet = false): int
     {
@@ -915,6 +1079,9 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $tag is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetTagCardinality()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetTagCardinalityCoercesFalseToZero()
      */
     public function getTagCardinality(string $tag): int
     {
@@ -948,6 +1115,15 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $set is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSortedWithNormalOrder()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSortedWithReversedOrder()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSortedWithEmptySet()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSortedRemovesDanglingMembers()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSortedPreservesNullValuedMembers()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSortedYieldsStoredFalseForExistingMember()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSortedYieldsStoredFalseAndContinuesIteration()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSortedWrapsRedisExceptionFromGenerator()
      */
     public function getSorted(string $set, int $count, int $offset = 0, bool $reversed = false): Generator
     {
@@ -996,6 +1172,9 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testAddToSet()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testAddToSetRejectsInvalidKey()
      */
     public function addToSet(string $key, mixed $value): self
     {
@@ -1016,6 +1195,8 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testRemoveFromSet()
      */
     public function removeFromSet(string $key, mixed $value): self
     {
@@ -1036,6 +1217,10 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSet()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSetReturnsNullWhenNotExists()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetSetReturnsNumericallyIndexedArray()
      */
     public function getSet(string $key): ?array
     {
@@ -1062,6 +1247,9 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
      * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testCreateSet()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testCreateSetWithEmptyArrayDeletesWithoutSAdd()
      */
     public function createSet(string $key, array $values): self
     {
@@ -1091,6 +1279,15 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * @throws InvalidArgumentException Which implements PSR-16's
      *         {@see \Psr\SimpleCache\InvalidArgumentException}.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetRejectsInvalidKey()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetRejectsInvalidKey()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testDeleteRejectsInvalidKey()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testValidateKeyRejectsBackslashCharacter()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testValidateKeyRejectsBraceCharacter()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testValidateKeyRejectsParenCharacter()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testRejectsInvalidKeyAcrossEveryApi()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testInvalidArgumentExceptionIsPsrCompliant()
      */
     private function validateKey(mixed $key): void
     {
@@ -1112,6 +1309,9 @@ class RapidCacheClient implements CacheServiceInterface
      * interval becomes ~86400 seconds. Returned value may be ≤ 0 if the
      * interval points to the past — callers are expected to treat that as
      * an immediate-delete signal.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetWithDateIntervalTtl()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetWithZeroTtlDeletesEntry()
      */
     private function normalizeTtl(null|int|DateInterval $ttl): ?int
     {
@@ -1138,6 +1338,13 @@ class RapidCacheClient implements CacheServiceInterface
      * @template T
      * @param callable():T $op
      * @return T
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testWrapResetsConnectionOnRedisException()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testRetryOnceRecoversFromTransientError()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testRetryOnceDoesNotMaskPermanentError()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetWrapsRedisExceptionAsCacheException()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetWrapsRedisExceptionAsCacheException()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testEnqueueWrapsRedisExceptionAsCacheException()
      */
     private function wrap(callable $op): mixed
     {
@@ -1164,6 +1371,9 @@ class RapidCacheClient implements CacheServiceInterface
      * {@see CacheException} (which is PSR-16's
      * {@see \Psr\SimpleCache\CacheException}), preserving the original as
      * the chained cause.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testInvalidArgumentExceptionIsPsrCompliant()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testGetWrapsRedisExceptionAsCacheException()
      */
     private function toCacheException(RedisException $e): CacheException
     {

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Praetorian\CacheBenchmark\Adapters;
+namespace IDCT\RapidCacheBenchmark\Adapters;
 
-use Praetorian\CacheBenchmark\CacheAdapterInterface;
-use Praetorian\CacheBenchmark\ComplexTestObject;
+use IDCT\RapidCacheBenchmark\CacheAdapterInterface;
+use IDCT\RapidCacheBenchmark\ComplexTestObject;
 use Symfony\Component\Cache\Adapter\RedisTagAwareAdapter;
 use Symfony\Component\Cache\Marshaller\DefaultMarshaller;
 
@@ -89,6 +89,11 @@ class SymfonyCacheJsonAdapter implements CacheAdapterInterface
     public function getName(): string
     {
         return 'Symfony Cache (RedisTagAware with JSON)';
+    }
+
+    public function getShortName(): string
+    {
+        return 'Symfony (JSON)';
     }
 
     public function supportsTagging(): bool

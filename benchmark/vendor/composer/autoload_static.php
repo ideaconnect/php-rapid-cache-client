@@ -4,7 +4,7 @@
 
 namespace Composer\Autoload;
 
-class ComposerStaticInit14a1c2a46ee343cdce527e2740c1a3bc
+class ComposerStaticInite78f4e7dfecaf06a084db5272df4f6d7
 {
     public static $files = array (
         '6e3fae29631ef280660b3cdad06f25a8' => __DIR__ . '/..' . '/symfony/deprecation-contracts/function.php',
@@ -16,7 +16,7 @@ class ComposerStaticInit14a1c2a46ee343cdce527e2740c1a3bc
     );
 
     public static $prefixLengthsPsr4 = array (
-        'S' => 
+        'S' =>
         array (
             'Symfony\\Polyfill\\Mbstring\\' => 26,
             'Symfony\\Polyfill\\Intl\\Normalizer\\' => 33,
@@ -29,87 +29,92 @@ class ComposerStaticInit14a1c2a46ee343cdce527e2740c1a3bc
             'Symfony\\Component\\Console\\' => 26,
             'Symfony\\Component\\Cache\\' => 24,
         ),
-        'P' => 
+        'P' =>
         array (
+            'Psr\\SimpleCache\\' => 16,
             'Psr\\Log\\' => 8,
             'Psr\\Container\\' => 14,
             'Psr\\Cache\\' => 10,
-            'Praetorian\\CacheBenchmark\\' => 26,
         ),
-        'M' => 
+        'M' =>
         array (
             'Monolog\\' => 8,
         ),
-        'G' => 
+        'I' =>
         array (
-            'GryfOSS\\Cache\\' => 14,
+            'IDCT\\RapidCacheBenchmark\\' => 25,
+            'IDCT\\Cache\\' => 11,
         ),
     );
 
     public static $prefixDirsPsr4 = array (
-        'Symfony\\Polyfill\\Mbstring\\' => 
+        'Symfony\\Polyfill\\Mbstring\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-mbstring',
         ),
-        'Symfony\\Polyfill\\Intl\\Normalizer\\' => 
+        'Symfony\\Polyfill\\Intl\\Normalizer\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-intl-normalizer',
         ),
-        'Symfony\\Polyfill\\Intl\\Grapheme\\' => 
+        'Symfony\\Polyfill\\Intl\\Grapheme\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-intl-grapheme',
         ),
-        'Symfony\\Polyfill\\Ctype\\' => 
+        'Symfony\\Polyfill\\Ctype\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-ctype',
         ),
-        'Symfony\\Contracts\\Service\\' => 
+        'Symfony\\Contracts\\Service\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/service-contracts',
         ),
-        'Symfony\\Contracts\\Cache\\' => 
+        'Symfony\\Contracts\\Cache\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/cache-contracts',
         ),
-        'Symfony\\Component\\VarExporter\\' => 
+        'Symfony\\Component\\VarExporter\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/var-exporter',
         ),
-        'Symfony\\Component\\String\\' => 
+        'Symfony\\Component\\String\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/string',
         ),
-        'Symfony\\Component\\Console\\' => 
+        'Symfony\\Component\\Console\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/console',
         ),
-        'Symfony\\Component\\Cache\\' => 
+        'Symfony\\Component\\Cache\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/cache',
         ),
-        'Psr\\Log\\' => 
+        'Psr\\SimpleCache\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/psr/simple-cache/src',
+        ),
+        'Psr\\Log\\' =>
         array (
             0 => __DIR__ . '/..' . '/psr/log/src',
         ),
-        'Psr\\Container\\' => 
+        'Psr\\Container\\' =>
         array (
             0 => __DIR__ . '/..' . '/psr/container/src',
         ),
-        'Psr\\Cache\\' => 
+        'Psr\\Cache\\' =>
         array (
             0 => __DIR__ . '/..' . '/psr/cache/src',
         ),
-        'Praetorian\\CacheBenchmark\\' => 
-        array (
-            0 => __DIR__ . '/../..' . '/src',
-        ),
-        'Monolog\\' => 
+        'Monolog\\' =>
         array (
             0 => __DIR__ . '/..' . '/monolog/monolog/src/Monolog',
         ),
-        'GryfOSS\\Cache\\' => 
+        'IDCT\\RapidCacheBenchmark\\' =>
         array (
-            0 => __DIR__ . '/..' . '/gryf-oss/cache/src',
+            0 => __DIR__ . '/../..' . '/src',
+        ),
+        'IDCT\\Cache\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/idct/php-rapid-cache-client/src',
         ),
     );
 
@@ -122,9 +127,9 @@ class ComposerStaticInit14a1c2a46ee343cdce527e2740c1a3bc
     public static function getInitializer(ClassLoader $loader)
     {
         return \Closure::bind(function () use ($loader) {
-            $loader->prefixLengthsPsr4 = ComposerStaticInit14a1c2a46ee343cdce527e2740c1a3bc::$prefixLengthsPsr4;
-            $loader->prefixDirsPsr4 = ComposerStaticInit14a1c2a46ee343cdce527e2740c1a3bc::$prefixDirsPsr4;
-            $loader->classMap = ComposerStaticInit14a1c2a46ee343cdce527e2740c1a3bc::$classMap;
+            $loader->prefixLengthsPsr4 = ComposerStaticInite78f4e7dfecaf06a084db5272df4f6d7::$prefixLengthsPsr4;
+            $loader->prefixDirsPsr4 = ComposerStaticInite78f4e7dfecaf06a084db5272df4f6d7::$prefixDirsPsr4;
+            $loader->classMap = ComposerStaticInite78f4e7dfecaf06a084db5272df4f6d7::$classMap;
 
         }, null, ClassLoader::class);
     }

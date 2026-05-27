@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Praetorian\CacheBenchmark\Adapters;
+namespace IDCT\RapidCacheBenchmark\Adapters;
 
-use Praetorian\CacheBenchmark\CacheAdapterInterface;
-use Praetorian\CacheBenchmark\ComplexTestObject;
+use IDCT\RapidCacheBenchmark\CacheAdapterInterface;
+use IDCT\RapidCacheBenchmark\ComplexTestObject;
 use IDCT\Cache\RapidCacheClient;
 
-class PraetorianCacheAdapter implements CacheAdapterInterface
+class RapidCacheAdapter implements CacheAdapterInterface
 {
     private RapidCacheClient $cache;
 
     public function __construct(string $host = 'localhost', int $port = 6381)
     {
-        $this->cache = new RapidCacheClient($host, $port, 'praetorian:');
+        $this->cache = new RapidCacheClient($host, $port, 'rapid-cache:');
     }
 
     public function set(string $key, ComplexTestObject $object): void
@@ -24,7 +24,7 @@ class PraetorianCacheAdapter implements CacheAdapterInterface
 
     public function setWithTag(string $key, ComplexTestObject $object, string $tag): void
     {
-        $this->cache->set($key, $object->toArray(), $tag);
+        $this->cache->setTagged($key, $object->toArray(), $tag);
     }
 
     public function get(string $key): ?ComplexTestObject
@@ -58,7 +58,12 @@ class PraetorianCacheAdapter implements CacheAdapterInterface
 
     public function getName(): string
     {
-        return 'Praetorian Cache (Hash-based with igbinary)';
+        return 'IDCT Rapid Cache (Hash-based with igbinary)';
+    }
+
+    public function getShortName(): string
+    {
+        return 'Rapid Cache';
     }
 
     public function supportsTagging(): bool

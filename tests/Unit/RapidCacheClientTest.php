@@ -37,12 +37,20 @@ class RapidCacheClientTest extends TestCase
         $redisProperty->setValue($this->cacheService, $this->redisMock);
     }
 
+    /**
+     * The client must satisfy both the PSR-16 CacheInterface and this package's
+     * CacheServiceInterface (which extends PSR-16 with tags, queues, sets, counters).
+     */
     public function testImplementsPsrSimpleCache(): void
     {
         $this->assertInstanceOf(CacheInterface::class, $this->cacheService);
         $this->assertInstanceOf(CacheServiceInterface::class, $this->cacheService);
     }
 
+    /**
+     * On a hit, get() returns the stored value via one GET — no follow-up EXISTS
+     * probe (that path is only used to disambiguate a stored literal `false`).
+     */
     public function testGetReturnsValueWhenExists(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -55,6 +63,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame('test-value', $this->cacheService->get('test-key'));
     }
 
+    /**
+     * When GET returns false AND a follow-up EXISTS confirms the key is gone,
+     * we return the caller-supplied default (or null when none was given).
+     */
     public function testGetReturnsDefaultWhenTrulyMissing(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -83,6 +95,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame('fallback', $this->cacheService->get('missing-key', 'fallback'));
     }
 
+    /**
+     * The literal `false` is a valid stored value: when GET returns false but
+     * EXISTS=1, the client yields `false`, never the default. This is the only
+     * reason the extra EXISTS round-trip exists.
+     */
     public function testGetReturnsStoredFalse(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -98,12 +115,19 @@ class RapidCacheClientTest extends TestCase
         $this->assertFalse($this->cacheService->get('flag-key', 'should-not-be-default'));
     }
 
+    /**
+     * PSR-16: keys containing reserved chars ({}()/\@:) must throw a
+     * PsrInvalidArgumentException — not a CacheException.
+     */
     public function testGetRejectsInvalidKey(): void
     {
         $this->expectException(PsrInvalidArgumentException::class);
         $this->cacheService->get('invalid:key');
     }
 
+    /**
+     * No TTL → plain SET (not SETEX). The value persists indefinitely.
+     */
     public function testSetWithoutTtl(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -115,6 +139,9 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->set('test-key', 'test-value'));
     }
 
+    /**
+     * Positive integer TTL → SETEX with the exact seconds value passed through.
+     */
     public function testSetWithIntegerTtl(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -126,6 +153,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->set('test-key', 'test-value', 3600));
     }
 
+    /**
+     * PSR-16 also allows DateInterval as TTL — `PT1M` must be resolved to 60s
+     * and forwarded to SETEX as an integer.
+     */
     public function testSetWithDateIntervalTtl(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -139,6 +170,10 @@ class RapidCacheClientTest extends TestCase
         );
     }
 
+    /**
+     * TTL=0 is treated as immediate-delete: the key is unlinked, its reverse tag
+     * set is cleaned, and neither SET nor SETEX is issued. Returns true.
+     */
     public function testSetWithZeroTtlDeletesEntry(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -162,12 +197,20 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->set('test-key', 'test-value', 0));
     }
 
+    /**
+     * Brace chars are reserved by PSR-16 — set() must reject before touching Redis.
+     */
     public function testSetRejectsInvalidKey(): void
     {
         $this->expectException(PsrInvalidArgumentException::class);
         $this->cacheService->set('bad{key}', 'value');
     }
 
+    /**
+     * setTagged without TTL fires one MULTI/PIPELINE containing SET +
+     * sAdd(TAG:tag→key) + sAdd(TAGS:key→tag) — the value and both index sides
+     * commit in a single round-trip.
+     */
     public function testSetTagged(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -194,6 +237,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->setTagged('test-key', 'test-value', 'test-tag'));
     }
 
+    /**
+     * setTagged with a TTL swaps SET for SETEX inside the same MULTI/PIPELINE;
+     * the two sAdd calls stay unchanged.
+     */
     public function testSetTaggedWithTtl(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -220,6 +267,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->setTagged('test-key', 'test-value', 'test-tag', 3600));
     }
 
+    /**
+     * delete() must cascade: read the key's reverse tag list (TAGS:key), then
+     * sRem the key from each TAG:* set, drop the reverse set itself, and finally
+     * unlink the key. All cleanup writes go in one MULTI/PIPELINE.
+     */
     public function testDeleteRemovesTagAssociations(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -257,12 +309,21 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->delete('test-key'));
     }
 
+    /**
+     * Empty string is not a valid PSR-16 key — delete() must reject.
+     */
     public function testDeleteRejectsInvalidKey(): void
     {
         $this->expectException(PsrInvalidArgumentException::class);
         $this->cacheService->delete('');
     }
 
+    /**
+     * clear() with a prefix configured must NOT call FLUSHDB (that'd wipe other
+     * apps sharing the database). Instead: temporarily disable phpredis's auto
+     * prefixing, SCAN/UNLINK only `<prefix>*` in batches, then restore the
+     * prior OPT_PREFIX and OPT_SCAN settings on the way out.
+     */
     public function testClearWithPrefixScansAndUnlinks(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -301,6 +362,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->clear());
     }
 
+    /**
+     * If SCAN returns false (transport/storage error), the loop must break
+     * immediately without attempting UNLINK on an invalid keyset and without
+     * looping forever.
+     */
     public function testClearBreaksOnScanFailure(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -320,6 +386,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(1, $scanCalls);
     }
 
+    /**
+     * Without a prefix there's nothing to scope to, so FLUSHDB wipes the whole
+     * database in one call — and SCAN is never invoked.
+     */
     public function testClearWithoutPrefixUsesFlushDb(): void
     {
         $service = new RapidCacheClient('localhost', 6379);
@@ -334,6 +404,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($service->clear());
     }
 
+    /**
+     * has() is a single EXISTS round-trip; returns true for present keys, false
+     * for missing ones, with no GET fallback.
+     */
     public function testHas(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -353,6 +427,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertFalse($this->cacheService->has('missing-key'));
     }
 
+    /**
+     * Happy path for getMultiple: a single MGET round-trip; missing entries
+     * substitute the caller-supplied default. Unlike get(), no EXISTS probe is
+     * issued — bulk reads sacrifice the stored-false distinction for speed.
+     */
     public function testGetMultiple(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -366,6 +445,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['key1' => 'value1', 'key2' => 'default'], $result);
     }
 
+    /**
+     * setMultiple with a TTL pipelines N SETEX commands inside one MULTI/PIPELINE
+     * so the whole batch hits Redis in a single round-trip. Returns true only
+     * when every queued SETEX succeeded.
+     */
     public function testSetMultipleWithTtlUsesPipelinedSetex(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -391,6 +475,10 @@ class RapidCacheClientTest extends TestCase
         );
     }
 
+    /**
+     * Without a TTL, MSET is the cheapest path (one server-side command, no
+     * MULTI/EXEC overhead, no per-key SETEX). No setex() calls allowed.
+     */
     public function testSetMultipleWithoutTtlUsesMSet(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -405,6 +493,10 @@ class RapidCacheClientTest extends TestCase
         );
     }
 
+    /**
+     * deleteMultiple must run the tag-cleanup pass per key (unindexKey) BEFORE
+     * the bulk DEL — otherwise tag sets would be left pointing at deleted keys.
+     */
     public function testDeleteMultiple(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -433,6 +525,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->deleteMultiple(['key1', 'key2']));
     }
 
+    /**
+     * With pipelineBatchSize=2 and 5 input keys, MGET must fire 3 times
+     * (chunks 2/2/1). Bounds request size so a single MGET can't blow past
+     * Redis's client-query-buffer-limit on huge inputs.
+     */
     public function testGetMultipleChunksMGetByConfiguredBatchSize(): void
     {
         $client = $this->buildClientWithBatchSize(2);
@@ -457,6 +554,11 @@ class RapidCacheClientTest extends TestCase
         );
     }
 
+    /**
+     * The SETEX pipeline is chunked too: each MULTI/EXEC contains at most
+     * pipelineBatchSize commands, so EXEC's atomic blocking step on the
+     * single-threaded server stays bounded.
+     */
     public function testSetMultipleWithTtlChunksPipelineByConfiguredBatchSize(): void
     {
         $client = $this->buildClientWithBatchSize(2);
@@ -478,6 +580,11 @@ class RapidCacheClientTest extends TestCase
         ], 60));
     }
 
+    /**
+     * The no-TTL MSET path is also chunked — one MSET per batch — preserving
+     * associative key/value pairing within each chunk via array_chunk(...,
+     * preserve_keys: true).
+     */
     public function testSetMultipleWithoutTtlChunksMSetByConfiguredBatchSize(): void
     {
         $client = $this->buildClientWithBatchSize(2);
@@ -503,6 +610,11 @@ class RapidCacheClientTest extends TestCase
         ]));
     }
 
+    /**
+     * Short-circuit on failure: if any MSET chunk returns false, the call
+     * returns false immediately without issuing subsequent chunks (avoids
+     * pouring more data into a broken connection).
+     */
     public function testSetMultipleWithoutTtlStopsOnFirstFailedChunk(): void
     {
         $client = $this->buildClientWithBatchSize(2);
@@ -520,6 +632,11 @@ class RapidCacheClientTest extends TestCase
         ]));
     }
 
+    /**
+     * The bulk DEL is split into chunks too — a single DEL with 100k+ args
+     * could exceed the server's client-query-buffer-limit. Per-key tag
+     * cleanup happens before any chunked DEL.
+     */
     public function testDeleteMultipleChunksDelByConfiguredBatchSize(): void
     {
         $client = $this->buildClientWithBatchSize(2);
@@ -549,6 +666,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($client->deleteMultiple(['k1', 'k2', 'k3', 'k4', 'k5']));
     }
 
+    /**
+     * clearByTag's two-phase cascade (fetch reverse tags → cleanup writes) is
+     * chunked on both phases plus the final bulk DEL, so a tag with 100k+
+     * members doesn't produce one giant pipeline that stalls Redis.
+     */
     public function testClearByTagChunksPhaseOneAndPhaseTwoByConfiguredBatchSize(): void
     {
         $client = $this->buildClientWithBatchSize(2);
@@ -605,6 +727,11 @@ class RapidCacheClientTest extends TestCase
         return $client;
     }
 
+    /**
+     * Happy path for getTagged: read members of TAG:*, MGET their values,
+     * yield each as key⇒value through the generator. No cleanup pipeline
+     * fires when nothing is stale.
+     */
     public function testGetTaggedWithExistingItems(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -621,6 +748,12 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['key1' => 'value1', 'key2' => 'value2'], $items);
     }
 
+    /**
+     * Self-healing read: if MGET returns false for some tag members (they
+     * expired/were deleted), those entries are pruned from the tag set in a
+     * deferred pipeline in the `finally`, while still-live members yield
+     * normally.
+     */
     public function testGetTaggedWithExpiredItems(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -653,6 +786,9 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['key1' => 'value1'], $items);
     }
 
+    /**
+     * Empty tag set returns an empty iterator — no MGET, no cleanup.
+     */
     public function testGetTaggedWithNoItems(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -664,6 +800,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame([], iterator_to_array($this->cacheService->getTagged('test-tag')));
     }
 
+    /**
+     * tag() on an existing key probes EXISTS first (to avoid ghost
+     * associations) then writes both index sides in a single MULTI/PIPELINE.
+     * Returns the client for fluent chaining.
+     */
     public function testTagExistingKey(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -692,6 +833,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertInstanceOf(RapidCacheClient::class, $result);
     }
 
+    /**
+     * Tagging a missing key would create a ghost tag entry that getTagged()
+     * would later have to clean up. tag() refuses upfront with an exception.
+     */
     public function testTagNonExistingKey(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -706,6 +851,11 @@ class RapidCacheClientTest extends TestCase
         $this->cacheService->tag('test-key', 'test-tag');
     }
 
+    /**
+     * untag() removes both sides of the association — key from TAG:tag, tag
+     * from TAGS:key — but leaves the cache value itself intact (use delete()
+     * to remove the value).
+     */
     public function testUntag(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -724,6 +874,14 @@ class RapidCacheClientTest extends TestCase
         $this->assertInstanceOf(RapidCacheClient::class, $result);
     }
 
+    /**
+     * Full happy-path for the two-phase pipelined cascade:
+     *   phase 1 — pipelined sMembers per tagged key to learn their other tags;
+     *   phase 2 — pipelined sRem from those other tag sets, del reverse-lookup
+     *             sets, del the values, del the tag set itself.
+     * For keys that belong to ONLY this tag (no other tags), no cross-tag
+     * sRem fires.
+     */
     public function testClearByTag(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -767,6 +925,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->clearByTag('test-tag'));
     }
 
+    /**
+     * When a cleared key also belongs to other tags, those tags' sets must be
+     * scrubbed too — otherwise they'd contain dangling members. The "current
+     * tag" itself is skipped (its whole set is del'd at the end anyway).
+     */
     public function testClearByTagRemovesKeysFromOtherTagsToo(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -808,6 +971,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->clearByTag('test-tag'));
     }
 
+    /**
+     * Empty/unknown tag: only del the tag set itself (which is a no-op for
+     * non-existent keys). No MULTI/EXEC pipelines fire — idempotent fast path.
+     */
     public function testClearByTagEmptyTagSet(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -823,6 +990,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->clearByTag('test-tag'));
     }
 
+    /**
+     * enqueue() pushes to the tail of a Redis list (RPUSH) — pairs with pop()
+     * head-removal to form a FIFO. Returns the client for chaining.
+     */
     public function testEnqueue(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -834,6 +1005,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertInstanceOf(RapidCacheClient::class, $result);
     }
 
+    /**
+     * Null values are forbidden: phpredis can't tell a stored-null from an
+     * empty-list LPOP reply, which would silently corrupt the FIFO contract.
+     */
     public function testEnqueueThrowsForNullValue(): void
     {
         $this->expectException(InvalidArgumentException::class);
@@ -842,6 +1017,10 @@ class RapidCacheClientTest extends TestCase
         $this->cacheService->enqueue('test-queue', null);
     }
 
+    /**
+     * Default pop (range=1) calls LPOP with no count and returns the value
+     * directly — not wrapped in an array.
+     */
     public function testPopSingleItem(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -853,6 +1032,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame('test-value', $this->cacheService->pop('test-queue'));
     }
 
+    /**
+     * Empty queue: phpredis LPOP returns false; pop() normalises that to null
+     * so callers can use the conventional null-check.
+     */
     public function testPopSingleItemReturnsNullWhenEmpty(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -864,6 +1047,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertNull($this->cacheService->pop('test-queue'));
     }
 
+    /**
+     * range > 1 calls LPOP with an explicit count and returns an array of up
+     * to N popped items (whatever was available).
+     */
     public function testPopMultipleItems(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -875,6 +1062,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['item1', 'item2', 'item3'], $this->cacheService->pop('test-queue', 3));
     }
 
+    /**
+     * peek() shows the head WITHOUT removing it — implemented via LRANGE(0, 0)
+     * and unwraps the single-element array to a scalar.
+     */
     public function testPeekSingleItem(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -886,6 +1077,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame('item1', $this->cacheService->peek('test-queue'));
     }
 
+    /**
+     * Empty queue: LRANGE returns []; peek normalises to null (consistent
+     * with pop()'s empty-queue contract).
+     */
     public function testPeekSingleItemReturnsNullWhenEmpty(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -897,18 +1092,29 @@ class RapidCacheClientTest extends TestCase
         $this->assertNull($this->cacheService->peek('empty-queue'));
     }
 
+    /**
+     * range < 1 is meaningless — fail fast with InvalidArgumentException
+     * before any Redis call.
+     */
     public function testPopRejectsNonPositiveRange(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->cacheService->pop('test-queue', 0);
     }
 
+    /**
+     * Symmetric to pop's range guard — peek also rejects range < 1.
+     */
     public function testPeekRejectsNonPositiveRange(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->cacheService->peek('test-queue', -1);
     }
 
+    /**
+     * range > 1 uses LRANGE(0, range-1) and returns the head window as an
+     * array, leaving the queue unchanged.
+     */
     public function testPeekMultipleItems(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -920,6 +1126,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['item1', 'item2', 'item3'], $this->cacheService->peek('test-queue', 3));
     }
 
+    /**
+     * increase() delegates to Redis INCRBY (atomic, server-side); the new
+     * value is not returned because the method is for fluent chaining.
+     */
     public function testIncrease(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -931,6 +1141,9 @@ class RapidCacheClientTest extends TestCase
         $this->assertInstanceOf(RapidCacheClient::class, $result);
     }
 
+    /**
+     * Mirror of increase() — delegates to DECRBY with the exact value.
+     */
     public function testDecrease(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -942,6 +1155,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertInstanceOf(RapidCacheClient::class, $result);
     }
 
+    /**
+     * SCARD on the tag's underlying TAG:* set — O(1) count, no member fetch.
+     * Note: count may include ghost entries until getTagged() prunes them.
+     */
     public function testGetTagCardinality(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -953,6 +1170,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(5, $this->cacheService->getTagCardinality('test-tag'));
     }
 
+    /**
+     * Regular sets use SCARD. The default `sortedSet=false` parameter selects
+     * this branch.
+     */
     public function testGetCardinalityForRegularSet(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -964,6 +1185,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(3, $this->cacheService->getCardinality('test-set'));
     }
 
+    /**
+     * `sortedSet=true` switches to ZCARD. Picking the wrong flag for the
+     * key's actual type yields WRONGTYPE wrapped as CacheException.
+     */
     public function testGetCardinalityForSortedSet(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -975,6 +1200,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(7, $this->cacheService->getCardinality('test-sorted-set', true));
     }
 
+    /**
+     * SADD adds a single member; sets dedupe automatically so adding an
+     * existing member is a server-side no-op. Returns the client for chaining.
+     */
     public function testAddToSet(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -986,6 +1215,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertInstanceOf(RapidCacheClient::class, $result);
     }
 
+    /**
+     * SREM removes a single member; idempotent (removing a non-member is a
+     * no-op). Redis auto-deletes the set once it's empty.
+     */
     public function testRemoveFromSet(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -997,6 +1230,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertInstanceOf(RapidCacheClient::class, $result);
     }
 
+    /**
+     * SMEMBERS returns every member of the set. Order is undefined (sets
+     * are unordered) — getSet just passes through whatever phpredis gives back.
+     */
     public function testGetSet(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1011,6 +1248,10 @@ class RapidCacheClientTest extends TestCase
         );
     }
 
+    /**
+     * Missing set: phpredis SMEMBERS returns false; getSet maps that to null
+     * (distinct from "empty set" → []).
+     */
     public function testGetSetReturnsNullWhenNotExists(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1022,6 +1263,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertNull($this->cacheService->getSet('test-set'));
     }
 
+    /**
+     * createSet replaces the entire set: DEL the old key first, then SADDARRAY
+     * the new values in one call. Use this for clean swaps; for incremental
+     * mutations prefer addToSet/removeFromSet.
+     */
     public function testCreateSet(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1036,6 +1282,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertInstanceOf(RapidCacheClient::class, $result);
     }
 
+    /**
+     * Passing []  is the documented "delete this set" form — DEL only, no
+     * SADDARRAY (which would WRONGTYPE-error on an empty array anyway).
+     */
     public function testCreateSetWithEmptyArrayDeletesWithoutSAdd(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1048,24 +1298,39 @@ class RapidCacheClientTest extends TestCase
         $this->assertInstanceOf(RapidCacheClient::class, $result);
     }
 
+    /**
+     * Queue names are validated as PSR-16 keys — reserved chars rejected.
+     */
     public function testEnqueueRejectsInvalidQueueName(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->cacheService->enqueue('bad:queue', 'value');
     }
 
+    /**
+     * Tag names are validated as PSR-16 keys too — they get prefixed and
+     * stored as actual Redis keys, so reserved chars would corrupt the index.
+     */
     public function testTagRejectsInvalidTagName(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->cacheService->tag('key', 'bad:tag');
     }
 
+    /**
+     * Set keys are validated like any other PSR-16 key.
+     */
     public function testAddToSetRejectsInvalidKey(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->cacheService->addToSet('bad@set', 'value');
     }
 
+    /**
+     * Treats a sorted set as an ordered index of cache keys: ZRANGE picks the
+     * window of members (lowest score first), MGET fetches their cached values,
+     * and the generator yields member⇒value pairs.
+     */
     public function testGetSortedWithNormalOrder(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1082,6 +1347,9 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['key1' => 'value1', 'key2' => 'value2'], $items);
     }
 
+    /**
+     * `reversed=true` uses ZREVRANGE (highest score first) instead of ZRANGE.
+     */
     public function testGetSortedWithReversedOrder(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1098,6 +1366,9 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['key2' => 'value2', 'key1' => 'value1'], $items);
     }
 
+    /**
+     * Empty/missing sorted set → empty iterator, no MGET issued.
+     */
     public function testGetSortedWithEmptySet(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1111,6 +1382,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame([], $items);
     }
 
+    /**
+     * Self-healing read: if MGET returns false for a member AND EXISTS
+     * confirms the underlying key is gone, the member is ZREM'd from the
+     * sorted set and delete() runs on the (already-missing) key as cleanup.
+     */
     public function testGetSortedRemovesDanglingMembers(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1148,6 +1424,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['live-key' => 'live-value'], $items);
     }
 
+    /**
+     * Stored `null` (igbinary-serialised) is a legitimate value, NOT a miss;
+     * MGET returns it as null (not false), so yielding-and-continuing is the
+     * right call — no pruning, no skipping.
+     */
     public function testGetSortedPreservesNullValuedMembers(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1166,6 +1447,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['null-key' => null], $items);
     }
 
+    /**
+     * When MGET returns false, an EXISTS probe disambiguates: if the key DOES
+     * exist, the false is a real stored value — yield it intact and don't prune.
+     */
     public function testGetSortedYieldsStoredFalseForExistingMember(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1187,6 +1472,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['flag-key' => false], $items);
     }
 
+    /**
+     * getQueue returns the full queue head-first via LRANGE(0, -1). O(N) —
+     * prefer peek() with a bounded range for large queues.
+     */
     public function testGetQueue(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1200,6 +1489,9 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['item1', 'item2', 'item3'], $this->cacheService->getQueue('test-queue'));
     }
 
+    /**
+     * O(1) LLEN — does not enumerate elements.
+     */
     public function testGetQueueLength(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1211,6 +1503,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(5, $this->cacheService->getQueueLength('test-queue'));
     }
 
+    /**
+     * Missing queue: phpredis LRANGE returns false; getQueue normalises to []
+     * so callers can safely foreach without a null check.
+     */
     public function testGetQueueWithEmptyQueue(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1222,6 +1518,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame([], $this->cacheService->getQueue('empty-queue'));
     }
 
+    /**
+     * Our package's InvalidArgumentException must implement PSR-16's
+     * interface so callers can catch on the PSR contract alone — without
+     * needing to know about the IDCT namespace.
+     */
     public function testInvalidArgumentExceptionIsPsrCompliant(): void
     {
         $exception = new InvalidArgumentException('boom');
@@ -1229,6 +1530,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertInstanceOf(\InvalidArgumentException::class, $exception);
     }
 
+    /**
+     * A RedisException during connect() must surface as the package's
+     * CacheException (which is PSR-16's CacheException) — not as the raw
+     * phpredis exception.
+     */
     public function testReconnectWrapsRedisExceptionAsCacheException(): void
     {
         $failingRedis = $this->createMock(Redis::class);
@@ -1242,6 +1548,11 @@ class RapidCacheClientTest extends TestCase
         $client->get('any-key');
     }
 
+    /**
+     * Any Throwable from setup (auth, select, setOption) — not just
+     * RedisException — must also be wrapped as CacheException, since
+     * phpredis can emit plain \Exception/RuntimeException from those.
+     */
     public function testReconnectWrapsArbitraryThrowable(): void
     {
         $failingRedis = $this->createMock(Redis::class);
@@ -1254,6 +1565,10 @@ class RapidCacheClientTest extends TestCase
         $client->get('any-key');
     }
 
+    /**
+     * The wrap() helper translates phpredis storage errors into
+     * CacheException as PSR-16 requires. Verified here via get().
+     */
     public function testGetWrapsRedisExceptionAsCacheException(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1265,6 +1580,10 @@ class RapidCacheClientTest extends TestCase
         $this->cacheService->get('test-key');
     }
 
+    /**
+     * Same wrap() contract on the write side: set() must also translate
+     * RedisException to CacheException.
+     */
     public function testSetWrapsRedisExceptionAsCacheException(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1275,6 +1594,10 @@ class RapidCacheClientTest extends TestCase
         $this->cacheService->set('test-key', 'value');
     }
 
+    /**
+     * Beyond PSR-16 — verifies the wrap() translation also covers the
+     * queue API surface (enqueue).
+     */
     public function testEnqueueWrapsRedisExceptionAsCacheException(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1285,6 +1608,12 @@ class RapidCacheClientTest extends TestCase
         $this->cacheService->enqueue('test-queue', 'value');
     }
 
+    /**
+     * getTagged is a generator — exceptions inside the body must still
+     * be translated to CacheException once consumers iterate. The
+     * deferred-flush cleanup in `finally` runs anyway, swallowing its
+     * own errors so they don't shadow the primary cause.
+     */
     public function testGetTaggedWrapsRedisExceptionFromGenerator(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1295,6 +1624,12 @@ class RapidCacheClientTest extends TestCase
         iterator_to_array($this->cacheService->getTagged('test-tag'));
     }
 
+    /**
+     * Full positive case for reconnect(): a fully-populated
+     * RedisConnectionConfig (auth + database + prefix + readTimeout +
+     * persistent) must result in matching pconnect/auth/select/setOption
+     * calls, in the right order, with the right values.
+     */
     public function testReconnectAppliesAllConfigFields(): void
     {
         $redis = $this->createMock(Redis::class);
@@ -1351,6 +1686,11 @@ class RapidCacheClientTest extends TestCase
         $client->forceConnect();
     }
 
+    /**
+     * After a RedisException, wrap() must null out the cached connection so
+     * the next operation triggers a fresh reconnect. A transient blip
+     * shouldn't poison the client for the rest of the request.
+     */
     public function testWrapResetsConnectionOnRedisException(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1372,6 +1712,11 @@ class RapidCacheClientTest extends TestCase
         );
     }
 
+    /**
+     * With retryOnce=true, a single transient RedisException triggers exactly
+     * one reconnect-and-retry. The retried call returns the recovered value
+     * and the caller never sees the exception.
+     */
     public function testRetryOnceRecoversFromTransientError(): void
     {
         $config = new RedisConnectionConfig(host: 'h', retryOnce: true);
@@ -1401,6 +1746,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(2, $callCount);
     }
 
+    /**
+     * If the retry ALSO throws (true outage, not a blip), the second
+     * exception is wrapped as CacheException and re-raised — retryOnce
+     * doesn't loop forever or swallow real failures.
+     */
     public function testRetryOnceDoesNotMaskPermanentError(): void
     {
         $config = new RedisConnectionConfig(host: 'h', retryOnce: true);
@@ -1424,6 +1774,11 @@ class RapidCacheClientTest extends TestCase
         $client->get('test-key');
     }
 
+    /**
+     * \Error (engine-level: missing class, type errors) is a coding bug, not a
+     * storage failure — must propagate unchanged so it isn't masked behind a
+     * misleading "couldn't connect to Redis" CacheException.
+     */
     public function testReconnectLetsErrorsPropagate(): void
     {
         $failingRedis = $this->createMock(Redis::class);
@@ -1441,6 +1796,15 @@ class RapidCacheClientTest extends TestCase
     // -------------------------------------------------------------------
 
     /**
+     * Provider for {@see testRejectsInvalidKeyAcrossEveryApi}.
+     *
+     * One closure per public API method that takes a PSR-16 key/tag/queue/set
+     * name. Each closure exercises the method with a key containing a reserved
+     * character (`:`), so validateKey() must throw before any Redis call.
+     *
+     * Catches the easy-to-forget case where a new method is added but its
+     * `$this->validateKey(...)` line is missing or accidentally deleted.
+     *
      * @return iterable<string, array{callable(RapidCacheClient): mixed}>
      */
     public static function invalidKeyOperationProvider(): iterable
@@ -1477,6 +1841,9 @@ class RapidCacheClientTest extends TestCase
     }
 
     /**
+     * Uniform contract: every public API rejects PSR-16-invalid keys with
+     * a PsrInvalidArgumentException. Runs once per entry in the provider.
+     *
      * @param callable(RapidCacheClient): mixed $op
      */
     #[DataProvider('invalidKeyOperationProvider')]
@@ -1490,6 +1857,10 @@ class RapidCacheClientTest extends TestCase
     // Hardening: reconnect skips optional config branches when not set.
     // -------------------------------------------------------------------
 
+    /**
+     * password=null → no AUTH call. Auth must be opt-in to avoid surprising
+     * "WRONGPASS" errors when connecting to an unauthed Redis.
+     */
     public function testReconnectWithoutPasswordSkipsAuth(): void
     {
         $redis = $this->createMock(Redis::class);
@@ -1499,6 +1870,10 @@ class RapidCacheClientTest extends TestCase
         $this->forceReconnect($config, $redis);
     }
 
+    /**
+     * Empty-string password is treated as "no password" — same as null. The
+     * `!== null && !== ''` check covers both forms of "unset".
+     */
     public function testReconnectWithEmptyPasswordSkipsAuth(): void
     {
         $redis = $this->createMock(Redis::class);
@@ -1508,6 +1883,10 @@ class RapidCacheClientTest extends TestCase
         $this->forceReconnect($config, $redis);
     }
 
+    /**
+     * database=0 means "use the default DB", which is also phpredis's default
+     * after connect — so SELECT is skipped to save a round-trip.
+     */
     public function testReconnectWithDatabaseZeroSkipsSelect(): void
     {
         $redis = $this->createMock(Redis::class);
@@ -1517,6 +1896,10 @@ class RapidCacheClientTest extends TestCase
         $this->forceReconnect($config, $redis);
     }
 
+    /**
+     * No prefix → no OPT_PREFIX setOption (igbinary serializer still fires).
+     * Setting an empty prefix would silently rewrite raw keys.
+     */
     public function testReconnectWithoutPrefixSkipsPrefixOption(): void
     {
         $redis = $this->createMock(Redis::class);
@@ -1538,6 +1921,10 @@ class RapidCacheClientTest extends TestCase
         );
     }
 
+    /**
+     * readTimeout=0 → OPT_READ_TIMEOUT skipped (phpredis treats 0 as "wait
+     * forever" — equivalent to not setting it at all).
+     */
     public function testReconnectWithZeroReadTimeoutSkipsReadTimeoutOption(): void
     {
         $redis = $this->createMock(Redis::class);
@@ -1559,6 +1946,10 @@ class RapidCacheClientTest extends TestCase
         );
     }
 
+    /**
+     * Default is `persistent=false` → connect() (non-persistent). pconnect()
+     * must NOT fire unless explicitly opted in.
+     */
     public function testReconnectUsesNonPersistentConnectByDefault(): void
     {
         $redis = $this->createMock(Redis::class);
@@ -1594,6 +1985,10 @@ class RapidCacheClientTest extends TestCase
     // Hardening: legacy constructor & default-port handling.
     // -------------------------------------------------------------------
 
+    /**
+     * Legacy 3-arg constructor accepts `?int $port` — passing null must
+     * resolve to DEFAULT_REDIS_PORT (6379) via the `?? DEFAULT_REDIS_PORT`.
+     */
     public function testLegacyConstructorAppliesDefaultPortWhenNullGiven(): void
     {
         $client = new RapidCacheClient('h', null, null);
@@ -1603,6 +1998,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(RapidCacheClient::DEFAULT_REDIS_PORT, $config->port);
     }
 
+    /**
+     * Explicit port must NOT be replaced by DEFAULT_REDIS_PORT — a `7777` in
+     * means a `7777` out. Pins the operand order of `$port ?? DEFAULT` so a
+     * swapped `DEFAULT ?? $port` mutation gets killed.
+     */
     public function testLegacyConstructorPreservesExplicitPort(): void
     {
         $client = new RapidCacheClient('h', 7777, null);
@@ -1616,6 +2016,13 @@ class RapidCacheClientTest extends TestCase
     // Hardening: clear() multi-batch SCAN loop semantics.
     // -------------------------------------------------------------------
 
+    /**
+     * Multi-batch SCAN: iterator stays non-zero across iterations until the
+     * cursor wraps to 0. Asserts:
+     *  - SCAN fires exactly the right number of times (not one too few/many),
+     *  - the loop uses the documented batch size of 1000,
+     *  - each batch UNLINKs the keys it actually got back.
+     */
     public function testClearWithPrefixIteratesMultipleScanBatches(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1659,6 +2066,11 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->clear());
     }
 
+    /**
+     * When SCAN returns an empty list of keys for a batch, UNLINK must not
+     * fire — phpredis UNLINK on `[]` is at best a wasted round-trip, at
+     * worst an error depending on driver version.
+     */
     public function testClearSkipsUnlinkOnEmptyBatch(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1675,6 +2087,12 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->clear());
     }
 
+    /**
+     * Pins the `finally` block in clear(): even when SCAN throws mid-loop,
+     * the original OPT_PREFIX and OPT_SCAN values must be restored before
+     * the exception propagates. Otherwise the client would be left with
+     * prefix='', silently operating on raw global keys.
+     */
     public function testClearRestoresPrefixAndScanOptionsEvenWhenScanThrows(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1714,6 +2132,11 @@ class RapidCacheClientTest extends TestCase
     // Hardening: TTL=0 / negative TTL deletion path for tagged + multiple.
     // -------------------------------------------------------------------
 
+    /**
+     * setTagged with TTL=0 short-circuits to set()'s delete branch — tagging
+     * a key you're about to delete makes no sense. So: no SETEX, no SADD,
+     * no MULTI; just unindexKey + del.
+     */
     public function testSetTaggedWithZeroTtlShortCircuitsToDeleteAndSkipsTagging(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1739,6 +2162,12 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->setTagged('test-key', 'value', 'tag', 0));
     }
 
+    /**
+     * Backslash is reserved by PSR-16. The implementation uses
+     * `preg_quote(RESERVED_KEY_CHARS, '#')` so the `\` actually appears as a
+     * literal in the character class — removing preg_quote would silently
+     * accept backslashes. This test pins that defence.
+     */
     public function testValidateKeyRejectsBackslashCharacter(): void
     {
         // Backslash is reserved by PSR-16; only `preg_quote` makes `\\` matchable
@@ -1747,18 +2176,32 @@ class RapidCacheClientTest extends TestCase
         $this->cacheService->get('bad\\key');
     }
 
+    /**
+     * `{` is one of the PSR-16 reserved chars — keep an explicit test so the
+     * RESERVED_KEY_CHARS constant can't be silently shortened.
+     */
     public function testValidateKeyRejectsBraceCharacter(): void
     {
         $this->expectException(PsrInvalidArgumentException::class);
         $this->cacheService->get('bad{key');
     }
 
+    /**
+     * Same reasoning for `(` — explicit per-char tests so deletions from
+     * RESERVED_KEY_CHARS get caught.
+     */
     public function testValidateKeyRejectsParenCharacter(): void
     {
         $this->expectException(PsrInvalidArgumentException::class);
         $this->cacheService->get('bad(key');
     }
 
+    /**
+     * Distinguishes keys from values so a mutation like
+     * `foreach (array_keys($normalized) as $key)` → `foreach ($normalized
+     * as $key)` (which would iterate VALUES) gets caught — unindexKey would
+     * lookup `TAGS:<value>` instead of `TAGS:<key>`.
+     */
     public function testSetMultipleWithZeroTtlUnindexesByOriginalKeysNotValues(): void
     {
         // Distinguish keys from values so a mutation like
@@ -1783,6 +2226,12 @@ class RapidCacheClientTest extends TestCase
         $this->assertNotContains('TAGS:val_two', $sMembersCalls);
     }
 
+    /**
+     * The `!is_array($results) || in_array(false, $results, true)` guard:
+     * exec() returning false (the non-array failure case) must produce a
+     * `false` return. Pins the `||` so a mutation to `&&` (where neither
+     * arm by itself is enough) gets killed.
+     */
     public function testSetMultipleReturnsFalseWhenExecReturnsNonArray(): void
     {
         // The `!is_array($results) || in_array(false, $results, true)` guard:
@@ -1798,6 +2247,11 @@ class RapidCacheClientTest extends TestCase
         );
     }
 
+    /**
+     * Companion to the TTL=0 test: negative TTLs (e.g. a DateInterval
+     * resolving to the past) also short-circuit to delete. Pins the `<= 0`
+     * boundary against being mutated to `< 0`.
+     */
     public function testSetTaggedWithNegativeTtlShortCircuitsToDelete(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1808,6 +2262,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertTrue($this->cacheService->setTagged('test-key', 'value', 'tag', -10));
     }
 
+    /**
+     * setMultiple with TTL=0 must run the tag-cleanup unindex and the chunked
+     * bulk DEL — but never SETEX/MSET/MULTI.
+     */
     public function testSetMultipleWithZeroTtlDeletesKeysAndSkipsWrites(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1829,6 +2287,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertContains(['k1', 'k2'], $delCalls);
     }
 
+    /**
+     * Negative TTL on setMultiple takes the same delete path as TTL=0;
+     * pins the `<= 0` boundary.
+     */
     public function testSetMultipleWithNegativeTtlDeletesKeys(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1843,6 +2305,11 @@ class RapidCacheClientTest extends TestCase
     // Hardening: setTagged exec result semantics ([0] is the SET reply).
     // -------------------------------------------------------------------
 
+    /**
+     * In setTagged's pipeline, `$results[0]` is the SET reply — the value
+     * write. If SET fails, the method must return false regardless of whether
+     * the two follow-up sAdds succeeded. Pins index 0 as the right slot.
+     */
     public function testSetTaggedReturnsFalseWhenSetFailsInPipeline(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1855,6 +2322,12 @@ class RapidCacheClientTest extends TestCase
         $this->assertFalse($this->cacheService->setTagged('k', 'v', 't', 60));
     }
 
+    /**
+     * sAdd returning 0 (member already in set) is the EXPECTED case on re-tagging
+     * — only the SET reply (results[0]) gates the bool return. Verifies we're
+     * NOT looking at the wrong index or applying an `in_array(false, ...)`-style
+     * check across the whole result.
+     */
     public function testSetTaggedReturnsTrueWhenSetSucceedsEvenIfTagWritesAreNoOps(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1872,6 +2345,11 @@ class RapidCacheClientTest extends TestCase
     // Hardening: phpredis return types — explicit (int) cast assertions.
     // -------------------------------------------------------------------
 
+    /**
+     * phpredis LLEN returns false on a missing/non-list key — the `(int)`
+     * cast in getQueueLength normalises that to 0 so callers get a clean
+     * integer. Pins the cast against removal mutations.
+     */
     public function testGetQueueLengthCoercesFalseToZero(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1881,6 +2359,10 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(0, $this->cacheService->getQueueLength('missing'));
     }
 
+    /**
+     * Same `(int)` cast on the tag-cardinality side: SCARD on a missing tag
+     * set returns false; we must return 0.
+     */
     public function testGetTagCardinalityCoercesFalseToZero(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1893,6 +2375,12 @@ class RapidCacheClientTest extends TestCase
     // Hardening: getSet must return numerically-indexed array (array_values).
     // -------------------------------------------------------------------
 
+    /**
+     * Pins the `array_values()` reindex in getSet: phpredis SMEMBERS can
+     * return arbitrarily-keyed arrays under some serializers; the contract
+     * is a zero-indexed list. Mutation removing array_values would leave the
+     * unexpected keys exposed.
+     */
     public function testGetSetReturnsNumericallyIndexedArray(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1907,6 +2395,11 @@ class RapidCacheClientTest extends TestCase
     // Hardening: getSorted continue branch (yields false but does NOT stop).
     // -------------------------------------------------------------------
 
+    /**
+     * Stored-false middle element must NOT stop iteration: after yielding
+     * the false, the loop must `continue` to subsequent members. Pins the
+     * `continue` against a mutation to `break` that would prematurely halt.
+     */
     public function testGetSortedYieldsStoredFalseAndContinuesIteration(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1926,6 +2419,10 @@ class RapidCacheClientTest extends TestCase
     // Hardening: peek bulk return shape (non-empty array path).
     // -------------------------------------------------------------------
 
+    /**
+     * peek(queue, 2) → LRANGE(0, 1) — pins the `range - 1` arithmetic.
+     * Returns the actual head window as an array.
+     */
     public function testPeekMultipleReturnsArrayOfHeadItems(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
@@ -1937,12 +2434,139 @@ class RapidCacheClientTest extends TestCase
         $this->assertSame(['a', 'b'], $this->cacheService->peek('queue', 2));
     }
 
+    /**
+     * peek(queue, range>1) on an empty queue returns null (not [] or false) —
+     * uniform empty-queue contract with the single-item peek.
+     */
     public function testPeekMultipleReturnsNullWhenEmpty(): void
     {
         $this->redisMock->method('isConnected')->willReturn(true);
         $this->redisMock->method('lRange')->willReturn([]);
 
         $this->assertNull($this->cacheService->peek('queue', 5));
+    }
+
+    // -------------------------------------------------------------------
+    // Hardening: empty-input short-circuits, the real Redis factory, and
+    // the rarely-hit defensive branches in clearByTag / getSorted.
+    // -------------------------------------------------------------------
+
+    /**
+     * getMultiple([]) must short-circuit to an empty array BEFORE touching the
+     * connection — no MGET (and not even a getRedis()/isConnected() probe) is
+     * issued for an empty key list.
+     */
+    public function testGetMultipleWithEmptyKeysReturnsEmptyArrayWithoutRedisCall(): void
+    {
+        $this->redisMock->expects($this->never())->method('mGet');
+        $this->redisMock->expects($this->never())->method('isConnected');
+
+        $this->assertSame([], $this->cacheService->getMultiple([]));
+    }
+
+    /**
+     * setMultiple([]) is a no-op that returns true without any write — neither
+     * the MSET fast path nor the pipelined SETEX path may fire for an empty map.
+     */
+    public function testSetMultipleWithEmptyValuesReturnsTrueWithoutRedisCall(): void
+    {
+        $this->redisMock->expects($this->never())->method('mSet');
+        $this->redisMock->expects($this->never())->method('setex');
+        $this->redisMock->expects($this->never())->method('isConnected');
+
+        $this->assertTrue($this->cacheService->setMultiple([]));
+    }
+
+    /**
+     * deleteMultiple([]) returns true and issues no DEL — the idempotent
+     * "nothing to delete" case short-circuits before the connection is used.
+     */
+    public function testDeleteMultipleWithEmptyKeysReturnsTrueWithoutRedisCall(): void
+    {
+        $this->redisMock->expects($this->never())->method('del');
+        $this->redisMock->expects($this->never())->method('isConnected');
+
+        $this->assertTrue($this->cacheService->deleteMultiple([]));
+    }
+
+    /**
+     * The default createRedisInstance() factory returns a genuine phpredis
+     * handle. Production code relies on this (tests normally override it to
+     * inject a mock), so the real `new Redis()` path is pinned here. Merely
+     * constructing the object does not open a socket, so this is safe without
+     * a live server.
+     */
+    public function testCreateRedisInstanceReturnsRealRedis(): void
+    {
+        $client = new RapidCacheClient('localhost', 6379, 'test:');
+        $factory = new \ReflectionMethod($client, 'createRedisInstance');
+
+        $this->assertInstanceOf(Redis::class, $factory->invoke($client));
+    }
+
+    /**
+     * Defensive branch in clearByTag's phase 1: if a pipelined EXEC returns a
+     * non-array (a transport hiccup mid-transaction), the reverse-lookup buffer
+     * is padded with `null` for every member of that chunk so phase-2 indexing
+     * stays aligned with $members. A padded (null) reverse-lookup means "no
+     * known other tags", so no cross-tag sRem is emitted — the member's own
+     * reverse set and the member key are still deleted, and the tag set is
+     * removed last.
+     */
+    public function testClearByTagPadsReverseLookupsWhenPhaseOneExecReturnsNonArray(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        // Outer sMembers('TAG:t') yields the single tagged member; the inner
+        // sMembers happens inside the phase-1 pipeline and its direct return is
+        // irrelevant (results would normally arrive via exec()).
+        $this->redisMock->method('sMembers')
+            ->willReturnCallback(fn(string $k) => $k === 'TAG:t' ? ['k1'] : []);
+
+        // Two MULTI/EXEC pairs: phase 1 (EXEC returns false → triggers padding)
+        // and phase 2 (the cleanup pipeline).
+        $this->redisMock->expects($this->exactly(2))
+            ->method('multi')
+            ->with(Redis::PIPELINE);
+        $this->redisMock->expects($this->exactly(2))
+            ->method('exec')
+            ->willReturnOnConsecutiveCalls(false, [1]);
+
+        // Because the reverse lookup was padded to null, no sRem against other
+        // tag sets may be issued.
+        $this->redisMock->expects($this->never())->method('sRem');
+
+        // del order: phase-2 del('TAGS:k1'), then bulk del(['k1']), then the
+        // tag set del('TAG:t').
+        $delMatcher = $this->exactly(3);
+        $this->redisMock->expects($delMatcher)
+            ->method('del')
+            ->willReturnCallback(function (string|array $arg) use ($delMatcher) {
+                match ($delMatcher->numberOfInvocations()) {
+                    1 => $this->assertSame('TAGS:k1', $arg),
+                    2 => $this->assertSame(['k1'], $arg),
+                    3 => $this->assertSame('TAG:t', $arg),
+                };
+                return 1;
+            });
+
+        $this->assertTrue($this->cacheService->clearByTag('t'));
+    }
+
+    /**
+     * getSorted is a generator, so a RedisException raised during its read
+     * phase only surfaces once a consumer iterates it. When it does, the catch
+     * block must translate it into a CacheException (PSR-16's
+     * Psr\SimpleCache\CacheException) just like the non-generator methods.
+     */
+    public function testGetSortedWrapsRedisExceptionFromGenerator(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('zRange')
+            ->willThrowException(new \RedisException('boom'));
+
+        $this->expectException(\IDCT\Cache\Exception\CacheException::class);
+        $this->expectException(\Psr\SimpleCache\CacheException::class);
+        iterator_to_array($this->cacheService->getSorted('test-sorted-set', 2));
     }
 
     private function clientWithInjectedRedis(Redis $redis): RapidCacheClient

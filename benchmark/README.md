@@ -6,7 +6,7 @@ This comprehensive benchmark compares the performance of different Redis cache i
 
 The benchmark tests three cache implementations:
 
-1. **Praetorian Cache (Hash-based with igbinary)** - Our optimized implementation using Redis hashes for tagged operations
+1. **IDCT Rapid Cache (Hash-based with igbinary)** - Our optimized implementation using Redis hashes for tagged operations
 2. **Symfony Cache (RedisTagAware with igbinary)** - Symfony's tag-aware Redis adapter with DefaultMarshaller(true) for igbinary serialization
 3. **Symfony Cache (RedisTagAware with JSON)** - Symfony's tag-aware Redis adapter with DefaultMarshaller(false) for JSON serialization
 
@@ -49,19 +49,27 @@ php bin/benchmark.php --adapter=all --items=100000 --type=basic
 php bin/benchmark.php --adapter=all --items=100000 --type=tagged
 
 # Both benchmarks with specific adapter
-php bin/benchmark.php --adapter=praetorian --items=50000 --type=both
+php bin/benchmark.php --adapter=rapid-cache --items=50000 --type=both
 
 # Custom tags for tagged benchmark
 php bin/benchmark.php --type=tagged --tags=category1,category2,category3,category4
+
+# Same run, plus a self-contained HTML report (table + bar chart per section)
+php bin/benchmark.php --adapter=all --type=both --items=10000 --report=report.html
+
+# Same run, plus a static SVG chart that embeds directly in Markdown/README
+php bin/benchmark.php --adapter=all --type=both --items=10000 --chart=benchmark.svg
 ```
 
 ### Available Options
-- `--adapter`: praetorian, symfony-igbinary, symfony-json, all (default: all)
+- `--adapter`: rapid-cache, symfony-igbinary, symfony-json, all (default: all)
 - `--items`: Number of items to benchmark (default: 100000)
 - `--type`: basic, tagged, both (default: basic)
 - `--tags`: Comma-separated tags for tagged benchmarks (default: tag1,tag2,tag3,tag4)
 - `--host`: Redis host (default: localhost)
 - `--port`: Redis port (default: 6380)
+- `--report`: Optional path; writes a self-contained HTML report (table + Chart.js bar chart per section) to the given file
+- `--chart`: Optional path; writes a static SVG bar chart (no JavaScript — embeds in Markdown/README) to the given file
 - `--help`: Show help message
 
 ## Performance Results
@@ -70,7 +78,7 @@ php bin/benchmark.php --type=tagged --tags=category1,category2,category3,categor
 
 | Implementation | SET ops/sec | GET ops/sec | Total ops/sec | Speed Improvement |
 |---|---|---|---|---|
-| **Praetorian Cache (Hash-based)** | 9,871 | 111,643 | 36,461 | **11.35x faster** |
+| **IDCT Rapid Cache (Hash-based)** | 9,871 | 111,643 | 36,461 | **11.35x faster** |
 | Symfony Cache (RedisTagAware + JSON) | 649 | 288,914 | 3,215 | - |
 | Symfony Cache (RedisTagAware + igbinary) | 648 | 309,507 | 3,212 | - |
 
@@ -83,7 +91,7 @@ php bin/benchmark.php --type=tagged --tags=category1,category2,category3,categor
 
 ## Architecture Comparison
 
-### Hash-based Implementation (Praetorian)
+### Hash-based Implementation (IDCT Rapid Cache)
 ```redis
 # Storage: Direct value storage in tag hashes
 hSet("TAG:tag1", "key1", "serialized_value1")
@@ -118,9 +126,11 @@ benchmark/
 │   ├── BenchmarkRunner.php         # Core benchmark logic
 │   ├── BenchmarkResult.php         # Basic benchmark results
 │   ├── TaggedBenchmarkResult.php   # Tagged benchmark results
+│   ├── HtmlReportGenerator.php     # Renders the --report HTML output
+│   ├── SvgChartGenerator.php       # Renders the --chart static SVG output
 │   ├── CacheAdapterInterface.php   # Common interface
 │   └── Adapters/
-│       ├── PraetorianCacheAdapter.php      # Hash-based implementation
+│       ├── RapidCacheAdapter.php           # Hash-based implementation
 │       ├── SymfonyCacheIgbinaryAdapter.php # Symfony with igbinary
 │       └── SymfonyCacheJsonAdapter.php     # Symfony with JSON
 └── vendor/                  # Composer dependencies
@@ -218,12 +228,12 @@ php bin/benchmark.php --adapter=all --items=50000 --type=tagged
 === TAGGED BENCHMARK SUMMARY ===
 Adapter                                  | SET ops/sec     | GET ops/sec     | Total ops/sec   | Memory MB  | Accuracy %
 -----------------------------------------------------------------------------------------------------------------------------
-Praetorian Cache (Hash-based with igbinary) | 9,871           | 111,643         | 36,461          | 86.52      | 100
+IDCT Rapid Cache (Hash-based with igbinary) | 9,871           | 111,643         | 36,461          | 86.52      | 100
 Symfony Cache (RedisTagAware with JSON)  | 649             | 288,914         | 3,215           | 89.99      | 100
 Symfony Cache (RedisTagAware with igbinary) | 648             | 309,507         | 3,212           | 88.44      | 100
 
 === TAGGED PERFORMANCE COMPARISON ===
-Fastest: Praetorian Cache (Hash-based with igbinary)
+Fastest: IDCT Rapid Cache (Hash-based with igbinary)
 Slowest: Symfony Cache (RedisTagAware with igbinary)
 Speed improvement: 11.35x faster
 
@@ -239,12 +249,12 @@ Per-tag performance (fastest adapter):
 === BENCHMARK SUMMARY ===
 Adapter                                  | SET ops/sec  | GET ops/sec  | Total ops/sec | Memory MB
 ----------------------------------------------------------------------------------------------------
-Praetorian Cache (Hash-based with igbinary) | 26,112       | 30,119       | 27,973       | 0.54
+IDCT Rapid Cache (Hash-based with igbinary) | 26,112       | 30,119       | 27,973       | 0.54
 Symfony Cache (RedisTagAware with JSON)  | 12,371       | 25,015       | 16,555       | 0.05
 Symfony Cache (RedisTagAware with igbinary) | 12,270       | 23,641       | 16,156       | 0.05
 
 === PERFORMANCE COMPARISON ===
-Fastest: Praetorian Cache (Hash-based with igbinary)
+Fastest: IDCT Rapid Cache (Hash-based with igbinary)
 Slowest: Symfony Cache (RedisTagAware with igbinary)
 Speed improvement: 1.73x faster
 ```

@@ -16,10 +16,11 @@ return array(
     'Symfony\\Component\\String\\' => array($vendorDir . '/symfony/string'),
     'Symfony\\Component\\Console\\' => array($vendorDir . '/symfony/console'),
     'Symfony\\Component\\Cache\\' => array($vendorDir . '/symfony/cache'),
+    'Psr\\SimpleCache\\' => array($vendorDir . '/psr/simple-cache/src'),
     'Psr\\Log\\' => array($vendorDir . '/psr/log/src'),
     'Psr\\Container\\' => array($vendorDir . '/psr/container/src'),
     'Psr\\Cache\\' => array($vendorDir . '/psr/cache/src'),
-    'Praetorian\\CacheBenchmark\\' => array($baseDir . '/src'),
     'Monolog\\' => array($vendorDir . '/monolog/monolog/src/Monolog'),
-    'GryfOSS\\Cache\\' => array($vendorDir . '/gryf-oss/cache/src'),
+    'IDCT\\RapidCacheBenchmark\\' => array($baseDir . '/src'),
+    'IDCT\\Cache\\' => array($vendorDir . '/idct/php-rapid-cache-client/src'),
 );

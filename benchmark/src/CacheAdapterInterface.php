@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Praetorian\CacheBenchmark;
+namespace IDCT\RapidCacheBenchmark;
 
 interface CacheAdapterInterface
 {
@@ -13,5 +13,6 @@ interface CacheAdapterInterface
     public function delete(string $key): void;
     public function clear(): void;
     public function getName(): string;
+    public function getShortName(): string;
     public function supportsTagging(): bool;
 }

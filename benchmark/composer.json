@@ -1,20 +1,20 @@
 {
-    "name": "praetorian/cache-benchmark",
-    "description": "Benchmark comparison between different Redis cache implementations",
+    "name": "idct/rapid-cache-benchmark",
+    "description": "Benchmark comparison between IDCT Rapid Cache and other Redis cache implementations",
     "type": "project",
     "require": {
-        "php": "^8.2",
+        "php": "^8.5",
         "ext-igbinary": "*",
         "ext-redis": "*",
         "ext-json": "*",
-        "gryf-oss/cache": "*",
-        "symfony/cache": "^7.0",
-        "symfony/console": "^7.0",
+        "idct/php-rapid-cache-client": "*",
+        "symfony/cache": "^8.0",
+        "symfony/console": "^8.0",
         "monolog/monolog": "^3.0"
     },
     "autoload": {
         "psr-4": {
-            "Praetorian\\CacheBenchmark\\": "src/"
+            "IDCT\\RapidCacheBenchmark\\": "src/"
         }
     },
     "repositories": [
@@ -26,11 +26,14 @@
     "scripts": {
         "benchmark": "php bin/benchmark.php",
         "benchmark:all": [
-            "php bin/benchmark.php --adapter=praetorian",
+            "php bin/benchmark.php --adapter=rapid-cache",
             "php bin/benchmark.php --adapter=symfony-igbinary",
             "php bin/benchmark.php --adapter=symfony-json"
         ]
     },
     "minimum-stability": "dev",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "config": {
+        "process-timeout": 0
+    }
 }
