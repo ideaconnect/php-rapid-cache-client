@@ -10,7 +10,7 @@ use RuntimeException;
 /**
  * Thrown for storage/transport-level cache failures (a dropped connection, a
  * Redis WRONGTYPE error, a serialization failure, etc.) as opposed to caller
- * mistakes — those surface as {@see InvalidArgumentException}.
+ * mistakes - those surface as {@see InvalidArgumentException}.
  *
  * Why two interfaces are bridged here:
  * PSR-16 mandates that "any failure" from a cache operation be a

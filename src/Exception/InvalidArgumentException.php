@@ -7,7 +7,7 @@ namespace IDCT\Cache\Exception;
 use Psr\SimpleCache\InvalidArgumentException as PsrInvalidArgumentException;
 
 /**
- * Thrown when the caller passes an argument the cache contract forbids — an
+ * Thrown when the caller passes an argument the cache contract forbids - an
  * empty key, a key containing one of the PSR-16 reserved characters
  * ({@see \IDCT\Cache\RapidCacheClient}), a null queue value, a non-positive
  * pop/peek range, or tagging a key that does not exist.

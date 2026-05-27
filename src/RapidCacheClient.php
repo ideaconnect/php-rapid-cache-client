@@ -60,7 +60,7 @@ class RapidCacheClient implements CacheServiceInterface
 
     /**
      * The live phpredis handle, or null before the first connect / after a
-     * transport error nulled it in {@see wrap()}. Never read directly — go
+     * transport error nulled it in {@see wrap()}. Never read directly - go
      * through {@see getRedis()} so a dropped connection is transparently
      * re-established.
      */
@@ -82,7 +82,7 @@ class RapidCacheClient implements CacheServiceInterface
      * pre-built {@see RedisConnectionConfig} for full control over auth,
      * database, timeouts, and persistence.
      *
-     * No connection is opened here — the first cache operation triggers a
+     * No connection is opened here - the first cache operation triggers a
      * lazy connect via {@see reconnect()}.
      *
      * @param string|RedisConnectionConfig $hostOrConfig Either a hostname (legacy form)
@@ -119,8 +119,8 @@ class RapidCacheClient implements CacheServiceInterface
      * Opens a fresh Redis connection from the stored config and applies all
      * options (auth, database, timeouts, prefix, igbinary serializer).
      *
-     * Wraps any connection failure — including engine-level errors that aren't
-     * RedisException — into a {@see CacheException}. Pure-PHP coding bugs
+     * Wraps any connection failure - including engine-level errors that aren't
+     * RedisException - into a {@see CacheException}. Pure-PHP coding bugs
      * ({@see \Error}) are re-thrown unchanged so they aren't masked.
      *
      * @throws CacheException When connection or option-setup fails for any
@@ -171,13 +171,13 @@ class RapidCacheClient implements CacheServiceInterface
             // The igbinary serializer is what lets arbitrary PHP values (objects,
             // nested arrays, DateTime, …) round-trip losslessly: phpredis packs
             // them on SET and unpacks on GET. It also drives one of this client's
-            // quirks — a stored literal `false` is indistinguishable from a cache
+            // quirks - a stored literal `false` is indistinguishable from a cache
             // miss at the protocol level (both surface as PHP `false`), which is
             // why get()/getSorted() add an EXISTS probe to disambiguate.
             $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY);
         } catch (\Error $e) {
             // Engine-level errors (e.g. missing class, type errors) are bugs,
-            // not storage failures — let them propagate unchanged.
+            // not storage failures - let them propagate unchanged.
             throw $e;
         } catch (\Throwable $e) {
             throw new CacheException(
@@ -228,7 +228,7 @@ class RapidCacheClient implements CacheServiceInterface
      * returns false, an EXISTS probe disambiguates (one extra round-trip on
      * the miss-or-false case, none on the common hit path).
      *
-     * @param mixed $default Returned only when the key is absent — a stored
+     * @param mixed $default Returned only when the key is absent - a stored
      *                       `false` always wins over $default.
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key violates PSR-16
@@ -258,10 +258,10 @@ class RapidCacheClient implements CacheServiceInterface
      * Stores a value, optionally with a TTL.
      *
      * TTL semantics:
-     * - `null`     — persist indefinitely (Redis SET).
-     * - positive   — expire after N seconds (Redis SETEX), or after the
+     * - `null`     - persist indefinitely (Redis SET).
+     * - positive   - expire after N seconds (Redis SETEX), or after the
      *                resolved interval if a DateInterval is given.
-     * - `0` or negative — treated as immediate expiry: the key is deleted and
+     * - `0` or negative - treated as immediate expiry: the key is deleted and
      *                any tag associations are cleaned up. Returns true.
      *
      * Values are stored igbinary-serialized (configured at connect time), so
@@ -327,7 +327,7 @@ class RapidCacheClient implements CacheServiceInterface
      * The SCAN/UNLINK pass disables auto-prefixing so it can operate on raw
      * keys, then restores the prior prefix and SCAN options in a `finally`.
      *
-     * Without a prefix: FLUSHDB — wipes the entire database.
+     * Without a prefix: FLUSHDB - wipes the entire database.
      *
      * @throws CacheException On Redis transport/storage failures.
      *
@@ -377,7 +377,7 @@ class RapidCacheClient implements CacheServiceInterface
      * Bulk get via a single MGET round-trip.
      *
      * Unlike {@see get()}, this does NOT disambiguate stored-`false` from
-     * missing — both yield $default. Use {@see get()} per key when that
+     * missing - both yield $default. Use {@see get()} per key when that
      * distinction matters.
      *
      * @return array<string, mixed> Keyed by the originally requested keys, in
@@ -405,7 +405,7 @@ class RapidCacheClient implements CacheServiceInterface
         return $this->wrap(function () use ($normalized, $default) {
             $redis = $this->getRedis();
             $result = [];
-            // Chunk MGET to keep request size and reply buffer bounded — a
+            // Chunk MGET to keep request size and reply buffer bounded - a
             // single MGET with 100k+ keys can exceed client-query-buffer-limit
             // and stall reply parsing.
             foreach (array_chunk($normalized, $this->config->pipelineBatchSize) as $chunk) {
@@ -535,7 +535,7 @@ class RapidCacheClient implements CacheServiceInterface
      * Checks key existence via a single EXISTS call.
      *
      * Per PSR-16, this is a fast probe and the result is not a strong
-     * guarantee — a concurrent expiry between `has()` and a follow-up `get()`
+     * guarantee - a concurrent expiry between `has()` and a follow-up `get()`
      * is always possible.
      *
      * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
@@ -559,7 +559,7 @@ class RapidCacheClient implements CacheServiceInterface
      * Single MULTI/EXEC pipeline: the SET/SETEX and both index writes (the
      * tag → keys set and the reverse keys → tags set) commit together.
      *
-     * TTL ≤ 0 short-circuits to {@see set()}'s delete branch — tagging a
+     * TTL ≤ 0 short-circuits to {@see set()}'s delete branch - tagging a
      * key you're about to delete makes no sense, so tagging is skipped.
      *
      * Tags themselves are validated as PSR-16 keys, so they cannot contain
@@ -606,7 +606,7 @@ class RapidCacheClient implements CacheServiceInterface
      * **Side effects on iteration**: tag entries whose underlying key has
      * expired/been deleted are pruned from the tag set during iteration. The
      * cleanup is collected in-memory and flushed via a pipelined MULTI/EXEC
-     * in a `finally` block — so even an early `break` from the loop will
+     * in a `finally` block - so even an early `break` from the loop will
      * clean up whatever was inspected so far. Un-inspected entries are left
      * for the next call.
      *
@@ -661,7 +661,7 @@ class RapidCacheClient implements CacheServiceInterface
                     }
                     $redis->exec();
                 } catch (RedisException) {
-                    // Best-effort cleanup — don't shadow the primary exception.
+                    // Best-effort cleanup - don't shadow the primary exception.
                 }
             }
         }
@@ -675,7 +675,7 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * Race window: the EXISTS + SADD pair is not atomic. A concurrent
      * `delete($key)` between the two can still leave a ghost membership in
-     * the tag set — {@see getTagged()} heals such entries on read.
+     * the tag set - {@see getTagged()} heals such entries on read.
      *
      * @return self for chaining.
      *
@@ -709,7 +709,7 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * Symmetric to {@see tag()}: removes the key from the tag's set AND the
      * tag from the key's reverse-lookup set. The underlying cache value is
-     * left in place — use {@see delete()} to remove it entirely.
+     * left in place - use {@see delete()} to remove it entirely.
      *
      * Idempotent.
      *
@@ -792,7 +792,7 @@ class RapidCacheClient implements CacheServiceInterface
             // Phase 2 (pipelined, chunked): cascade all cleanup writes. Each
             // member can emit a variable number of sRem commands (one per
             // OTHER tag it belonged to), so chunking by member count is an
-            // approximation — but a tighter command-level chunker would only
+            // approximation - but a tighter command-level chunker would only
             // help pathological cases where members carry hundreds of tags.
             $totalMembers = count($members);
             for ($offset = 0; $offset < $totalMembers; $offset += $batchSize) {
@@ -952,7 +952,7 @@ class RapidCacheClient implements CacheServiceInterface
      * Returns the entire queue contents as a list (head-first), without
      * removing anything.
      *
-     * Beware: O(N) and pulls the whole list into memory — for large queues
+     * Beware: O(N) and pulls the whole list into memory - for large queues
      * prefer {@see peek()} with a bounded range.
      *
      * @return array<int, mixed>
@@ -998,7 +998,7 @@ class RapidCacheClient implements CacheServiceInterface
      * post-increment value is not returned (this method is for fluent
      * chaining); use {@see get()} if you need it.
      *
-     * Negative $value is accepted — it behaves like {@see decrease()}.
+     * Negative $value is accepted - it behaves like {@see decrease()}.
      *
      * @return self for chaining.
      *
@@ -1048,7 +1048,7 @@ class RapidCacheClient implements CacheServiceInterface
      * Returns the number of members in a set or sorted set (O(1)).
      *
      * @param bool $sortedSet When true uses ZCARD, otherwise SCARD. Pick the
-     *                        one matching how the key was originally written —
+     *                        one matching how the key was originally written -
      *                        calling SCARD on a sorted set (or vice versa) is
      *                        a WRONGTYPE error wrapped as a CacheException.
      *
@@ -1098,7 +1098,7 @@ class RapidCacheClient implements CacheServiceInterface
      * and pruned (`ZREM` + `delete()`).
      *
      * **Stored `false` vs missing**: when MGET returns `false`, an EXISTS
-     * probe disambiguates — a key that still exists yields its `false` value
+     * probe disambiguates - a key that still exists yields its `false` value
      * intact; one that's gone is pruned and skipped.
      *
      * **Side effects on iteration**: cleanup is interleaved with iteration
@@ -1165,7 +1165,7 @@ class RapidCacheClient implements CacheServiceInterface
     /**
      * Adds a single value to the set at $key (SADD).
      *
-     * Auto-creates the set on first add. Sets dedupe automatically — adding
+     * Auto-creates the set on first add. Sets dedupe automatically - adding
      * an existing member is a no-op.
      *
      * @return self for chaining.
@@ -1210,7 +1210,7 @@ class RapidCacheClient implements CacheServiceInterface
     /**
      * Returns all members of the set at $key (SMEMBERS).
      *
-     * Sets are unordered — the returned list has no meaningful ordering.
+     * Sets are unordered - the returned list has no meaningful ordering.
      *
      * @return list<string>|null Null when the set doesn't exist; an empty
      *                           list when the set exists but has no members.
@@ -1307,7 +1307,7 @@ class RapidCacheClient implements CacheServiceInterface
      *
      * DateInterval is resolved against the current moment, so a `P1D`
      * interval becomes ~86400 seconds. Returned value may be ≤ 0 if the
-     * interval points to the past — callers are expected to treat that as
+     * interval points to the past - callers are expected to treat that as
      * an immediate-delete signal.
      *
      * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testSetWithDateIntervalTtl()

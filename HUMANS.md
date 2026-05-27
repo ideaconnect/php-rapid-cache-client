@@ -11,7 +11,7 @@ itself*.
 ## What this project is
 
 `IDCT\Cache\RapidCacheClient` is a high-performance cache client for PHP backed
-by Redis (or any Redis-compatible server — we test against
+by Redis (or any Redis-compatible server - we test against
 [Valkey](https://valkey.io/)). It does two things:
 
 1. **Implements PSR-16** (`Psr\SimpleCache\CacheInterface`) so it's a drop-in
@@ -22,13 +22,13 @@ by Redis (or any Redis-compatible server — we test against
 
 It leans on two PHP extensions for speed:
 
-- **`ext-redis`** (phpredis) — the C client, far faster than a pure-PHP one.
-- **`ext-igbinary`** — a compact binary serializer. We turn it on at connect
+- **`ext-redis`** (phpredis) - the C client, far faster than a pure-PHP one.
+- **`ext-igbinary`** - a compact binary serializer. We turn it on at connect
   time so any PHP value (objects, nested arrays, `DateTime`, …) round-trips
   losslessly and more compactly than `serialize()`.
 
-The whole codebase is small — essentially one class plus a config object and
-two exception types — but it's written to a high bar: 100% test coverage,
+The whole codebase is small - essentially one class plus a config object and
+two exception types - but it's written to a high bar: 100% test coverage,
 PHPStan level 8, mutation-tested, and densely documented inline.
 
 ---
@@ -41,7 +41,7 @@ PHPStan level 8, mutation-tested, and densely documented inline.
   - PECL: `pecl install redis igbinary` (answer "yes" to enable igbinary
     support when building redis).
 - **Composer** (v2).
-- **Docker + Docker Compose** — the test suites spin up a Valkey container; you
+- **Docker + Docker Compose** - the test suites spin up a Valkey container; you
   don't need a Redis installed on your host.
 
 Verify your extensions:
@@ -72,7 +72,7 @@ tests.
 Most changes follow this loop:
 
 1. **Write or change code** in [src/](src/).
-2. **Add/adjust tests** — unit tests in [tests/Unit/](tests/Unit/) for logic and
+2. **Add/adjust tests** - unit tests in [tests/Unit/](tests/Unit/) for logic and
    branch coverage, and/or a Behat scenario in [features/](features/) for
    end-to-end behavior against a real server.
 3. **Run the checks** (see below).
@@ -82,7 +82,7 @@ Most changes follow this loop:
 composer test:unit            # PHPUnit + coverage (boots Valkey)
 composer test:bdd             # Behat functional tests (boots Valkey)
 composer analyse              # PHPStan level 8
-composer fix                  # php-cs-fixer — auto-formats your diff
+composer fix                  # php-cs-fixer - auto-formats your diff
 composer test:mutation        # Infection (optional locally; slow but revealing)
 ```
 
@@ -123,7 +123,7 @@ features/                    ← Behat .feature files run against real Valkey
 Two layers of tests, on purpose:
 
 - **Unit tests** mock the phpredis calls (via `php-mock`/`php-mock-phpunit`), so
-  they pin *exactly which Redis commands we issue and in what shape* — fast,
+  they pin *exactly which Redis commands we issue and in what shape* - fast,
   deterministic, and the source of our 100% coverage number.
 - **Behat features** talk to a **real** Valkey, so they catch the things mocks
   can't: serialization round-trips, TTL expiry, pipeline semantics, actual data
@@ -137,7 +137,7 @@ These are the load-bearing ideas. The inline PHPDoc in
 [src/RapidCacheClient.php](src/RapidCacheClient.php) explains each in detail;
 here's the map so you know what you're looking at.
 
-- **Lazy connection.** Constructing the client opens *no* socket — the first
+- **Lazy connection.** Constructing the client opens *no* socket - the first
   cache operation does (`reconnect()`). `getRedis()` re-establishes the
   connection on demand if it was dropped. This keeps object construction cheap
   and survives transient network blips.
@@ -146,7 +146,7 @@ here's the map so you know what you're looking at.
   igbinary-serialized, a key holding a literal `false` and a missing key both
   come back as `false` from the underlying GET. So `get()` and `getSorted()`
   add an `EXISTS` probe to tell the two apart. If you ever feel tempted to
-  delete that "redundant" probe — don't; it's the fix for a real ambiguity.
+  delete that "redundant" probe - don't; it's the fix for a real ambiguity.
 
 - **Dual tag index.** Tags are not a Redis feature; we build them from two
   mirrored sets:
@@ -161,7 +161,7 @@ here's the map so you know what you're looking at.
 - **Self-healing reads.** `getTagged()` and `getSorted()` quietly prune entries
   whose underlying key has expired or been deleted, as a side effect of
   iterating. (Note: if you `break` out of the generator early, only what you've
-  already seen gets cleaned — the rest is left for next time.)
+  already seen gets cleaned - the rest is left for next time.)
 
 - **One exception vocabulary.** Callers should only ever see PSR-16 exceptions.
   Raw phpredis `RedisException`s are caught in `wrap()` and translated by
@@ -198,7 +198,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on PHP 8.2 and
 The 100% coverage rule is the one that bites most often: **every new branch or
 early return needs a test that exercises it.** When you add a method, follow the
 house style and attach `@see` PHPDoc tags pointing at the tests that pin its
-behavior — grep an existing method in
+behavior - grep an existing method in
 [src/RapidCacheClient.php](src/RapidCacheClient.php) for the pattern.
 
 ---
@@ -215,7 +215,7 @@ method is:
 
 If you change behavior, update [README.md](README.md) (user docs), this file,
 and [AGENTS.md](AGENTS.md) (AI-agent rules) so all three stay consistent. Inline
-comments should explain reasoning the code can't express on its own — not
+comments should explain reasoning the code can't express on its own - not
 restate the obvious.
 
 ---
@@ -231,7 +231,7 @@ The library has been through a substantial modernization and hardening pass:
   parameter (`null|int|DateInterval`).
 - **Tagging** reworked onto the dual-index set scheme with atomic pipelined
   writes and self-healing reads. (Heads-up: [IMPLEMENTATION.md](IMPLEMENTATION.md)
-  describes an earlier *hash-based* tagging design and is now historical/stale —
+  describes an earlier *hash-based* tagging design and is now historical/stale -
   the live behavior is the set-based one documented in the source.)
 - **Queues** with `enqueue`/`pop`/`peek`/`getQueue`/`getQueueLength`, including
   `peek` (non-destructive inspection) added recently.
@@ -266,17 +266,17 @@ library version, a minimal reproduction, and the full error + stack trace.
 
 ## Troubleshooting
 
-- **`Class "Redis" not found` / serializer errors** — `ext-redis` isn't
+- **`Class "Redis" not found` / serializer errors** - `ext-redis` isn't
   installed, or wasn't built with igbinary. Check `php --ri redis`.
-- **Connection refused in tests** — the Valkey container isn't up or finished
+- **Connection refused in tests** - the Valkey container isn't up or finished
   starting. `composer redis:start` then `composer test:connection`; the
   `redis:wait` step sleeps to give it time.
-- **Coverage check fails in CI but tests pass** — you added a code path without
+- **Coverage check fails in CI but tests pass** - you added a code path without
   a test. Look at the per-line HTML report under `report/` after a coverage run.
-- **php-cs-fixer warns about your PHP version** — it just means you're running a
+- **php-cs-fixer warns about your PHP version** - it just means you're running a
   newer PHP than the 8.2 floor; `composer fix` still works. Prefer running it on
   8.2 if a fix looks suspicious.
-- **Port 6380 already in use** — something else grabbed it; stop it or change
+- **Port 6380 already in use** - something else grabbed it; stop it or change
   the mapping in [features/docker/docker-compose.yml](features/docker/docker-compose.yml)
   (and the matching `REDIS_PORT`).
 
@@ -284,4 +284,4 @@ library version, a minimal reproduction, and the full error + stack trace.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).

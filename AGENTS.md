@@ -1,7 +1,7 @@
 # Agent Guidelines
 
 Rules for AI agents (Claude, Copilot, Codex, etc.) working on this codebase.
-Humans should read [HUMANS.md](HUMANS.md) instead — it covers the same ground
+Humans should read [HUMANS.md](HUMANS.md) instead - it covers the same ground
 in a friendlier, narrative form.
 
 ## TL;DR
@@ -19,7 +19,7 @@ tests that pin each behavior. Quality bars are strict: **100% unit coverage**,
 
 **Every task must end with all tests passing.** A task is not "done" if any
 test is failing, skipped without justification, or commented out. If a change
-you make breaks tests, fix them in the same task — do not defer, do not hand
+you make breaks tests, fix them in the same task - do not defer, do not hand
 off broken state.
 
 Run before declaring a task complete:
@@ -40,7 +40,7 @@ success. **Never claim a green suite you did not actually observe.**
 CI fails the build if **method coverage or line coverage drops below 100.00%**
 (see [.github/workflows/ci.yml](.github/workflows/ci.yml)). Any new branch,
 guard, or early return you add needs a matching unit test. When you add a
-public method, also add the `@see` PHPDoc links pointing at its tests — that
+public method, also add the `@see` PHPDoc links pointing at its tests - that
 convention is how this codebase documents the test⇄code mapping (grep existing
 methods in [src/RapidCacheClient.php](src/RapidCacheClient.php) for the
 pattern).
@@ -55,7 +55,7 @@ composer fix       # php-cs-fixer (PSR-12 + Symfony + strict extras), --allow-ri
 `composer analyse` must report no errors. Run `composer fix` before finishing
 so the diff is already style-clean. Existing PHPStan `ignoreErrors` entries in
 [phpstan.neon.dist](phpstan.neon.dist) are deliberate (phpredis camelCase
-aliases, PHPUnit idioms) — extend them only with a justifying comment, never
+aliases, PHPUnit idioms) - extend them only with a justifying comment, never
 silence a real error.
 
 ### Mutation testing floor
@@ -64,7 +64,7 @@ silence a real error.
 composer test:mutation   # Infection; minMsi 90, minCoveredMsi 93
 ```
 
-If you touch core logic, a passing line-coverage number is not enough — a test
+If you touch core logic, a passing line-coverage number is not enough - a test
 must actually *fail* when the logic is mutated. Infection thresholds live in
 [infection.json](infection.json).
 
@@ -89,7 +89,7 @@ callers or corrupt the tag index.
   triggers `reconnect()`. `getRedis()` transparently reconnects if the handle
   was lost.
 - **igbinary serializer.** Set at connect time. It is why a stored literal
-  `false` is indistinguishable from a miss at the protocol level — `get()` and
+  `false` is indistinguishable from a miss at the protocol level - `get()` and
   `getSorted()` deliberately add an `EXISTS` probe to disambiguate. Do not
   "simplify" that probe away.
 - **Dual tag index.** Tagging maintains two mirrored SETs per relationship:

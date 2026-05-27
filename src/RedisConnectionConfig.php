@@ -24,14 +24,14 @@ final class RedisConnectionConfig
      *                                    (typically 0–15). Default 0 means "no SELECT call".
      * @param float       $connectTimeout Seconds to wait while establishing the TCP connection.
      *                                    phpredis's native default is 0 ("wait forever"), which
-     *                                    can hang a worker indefinitely — we default to 1.0.
+     *                                    can hang a worker indefinitely - we default to 1.0.
      * @param float       $readTimeout    Seconds to wait for a single read response after the
      *                                    connection is established (Redis::OPT_READ_TIMEOUT).
      *                                    Only applied when > 0. Default 1.0.
      * @param bool        $persistent     When true, uses pconnect() so the connection is reused
      *                                    across requests in the same PHP-FPM/worker process.
      *                                    Recommended for hot paths; default false for safety.
-     * @param string|null $persistentId   Pool identifier for persistent connections — different
+     * @param string|null $persistentId   Pool identifier for persistent connections - different
      *                                    IDs get separate pooled connections. Ignored when
      *                                    $persistent is false.
      * @param bool        $retryOnce      When true, a RedisException triggers exactly one
