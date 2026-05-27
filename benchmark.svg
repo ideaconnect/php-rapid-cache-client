@@ -1,70 +1,57 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1040" viewBox="0 0 900 1040" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
-  <rect x="0" y="0" width="900" height="1040" fill="#ffffff"/>
-  <text x="24.0" y="36.0" font-size="22" fill="#111827" font-weight="bold">IDCT Rapid Cache — Benchmark</text>
-  <text x="24.0" y="60.0" font-size="12" fill="#6b7280" font-weight="normal">100,000 items per adapter  ·  127.0.0.1:6379  ·  tags: tag1, tag2, tag3, tag4  ·  2026-05-27 18:45:46 UTC</text>
-  <line x1="24" y1="74" x2="876" y2="74" stroke="#e5e7eb" stroke-width="1"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="760" viewBox="0 0 900 760" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <rect x="0" y="0" width="900" height="760" fill="#ffffff"/>
+  <text x="24.0" y="34.0" font-size="22" fill="#111827" font-weight="bold">IDCT Rapid Cache — Feature Benchmark</text>
+  <text x="24.0" y="58.0" font-size="12" fill="#6b7280" font-weight="normal">100,000 items  ·  127.0.0.1:6379  ·  2026-05-27 23:34:34 UTC  ·  ops/sec, higher is better</text>
+  <text x="24.0" y="78.0" font-size="12" fill="#6b7280" font-weight="normal">AMD EPYC 7763 64-Core Processor (4 cores)  ·  15.6 GB RAM (14.2 GB free)  ·  GitHub Actions</text>
+  <line x1="24" y1="92" x2="876" y2="92" stroke="#e5e7eb" stroke-width="1"/>
 
-  <text x="24.0" y="114.0" font-size="17" fill="#111827" font-weight="bold">Tagged Benchmark</text>
-  <text x="24.0" y="142.0" font-size="13" fill="#374151" font-weight="bold">SET ops/sec</text>
-  <text x="182" y="169.0" font-size="12" fill="#374151" text-anchor="end">Rapid Cache</text>
-  <rect x="192" y="152.0" width="588" height="26" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="788" y="169.0" font-size="12" fill="#111827" text-anchor="start">7,529</text>
-  <text x="182" y="207.0" font-size="12" fill="#374151" text-anchor="end">Symfony (JSON)</text>
-  <rect x="192" y="190.0" width="34" height="26" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="234" y="207.0" font-size="12" fill="#111827" text-anchor="start">434</text>
-  <text x="182" y="245.0" font-size="12" fill="#374151" text-anchor="end">Symfony (igbinary)</text>
-  <rect x="192" y="228.0" width="32" height="26" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="232" y="245.0" font-size="12" fill="#111827" text-anchor="start">412</text>
-  <text x="24.0" y="288.0" font-size="13" fill="#374151" font-weight="bold">GET ops/sec</text>
-  <text x="182" y="315.0" font-size="12" fill="#374151" text-anchor="end">Rapid Cache</text>
-  <rect x="192" y="298.0" width="588" height="26" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="788" y="315.0" font-size="12" fill="#111827" text-anchor="start">318,312</text>
-  <text x="182" y="353.0" font-size="12" fill="#374151" text-anchor="end">Symfony (igbinary)</text>
-  <rect x="192" y="336.0" width="296" height="26" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="496" y="353.0" font-size="12" fill="#111827" text-anchor="start">160,031</text>
-  <text x="182" y="391.0" font-size="12" fill="#374151" text-anchor="end">Symfony (JSON)</text>
-  <rect x="192" y="374.0" width="288" height="26" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="488" y="391.0" font-size="12" fill="#111827" text-anchor="start">155,646</text>
-  <text x="24.0" y="434.0" font-size="13" fill="#374151" font-weight="bold">Total ops/sec</text>
-  <text x="182" y="461.0" font-size="12" fill="#374151" text-anchor="end">Rapid Cache</text>
-  <rect x="192" y="444.0" width="588" height="26" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
-  <text x="788" y="461.0" font-size="12" fill="#111827" text-anchor="start">34,391</text>
-  <text x="182" y="499.0" font-size="12" fill="#374151" text-anchor="end">Symfony (JSON)</text>
-  <rect x="192" y="482.0" width="37" height="26" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
-  <text x="237" y="499.0" font-size="12" fill="#111827" text-anchor="start">2,147</text>
-  <text x="182" y="537.0" font-size="12" fill="#374151" text-anchor="end">Symfony (igbinary)</text>
-  <rect x="192" y="520.0" width="35" height="26" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
-  <text x="235" y="537.0" font-size="12" fill="#111827" text-anchor="start">2,041</text>
-  <text x="24.0" y="580.0" font-size="17" fill="#111827" font-weight="bold">Basic Benchmark</text>
-  <text x="24.0" y="608.0" font-size="13" fill="#374151" font-weight="bold">SET ops/sec</text>
-  <text x="182" y="635.0" font-size="12" fill="#374151" text-anchor="end">Rapid Cache</text>
-  <rect x="192" y="618.0" width="588" height="26" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="788" y="635.0" font-size="12" fill="#111827" text-anchor="start">7,961</text>
-  <text x="182" y="673.0" font-size="12" fill="#374151" text-anchor="end">Symfony (JSON)</text>
-  <rect x="192" y="656.0" width="279" height="26" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="479" y="673.0" font-size="12" fill="#111827" text-anchor="start">3,782</text>
-  <text x="182" y="711.0" font-size="12" fill="#374151" text-anchor="end">Symfony (igbinary)</text>
-  <rect x="192" y="694.0" width="277" height="26" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="477" y="711.0" font-size="12" fill="#111827" text-anchor="start">3,746</text>
-  <text x="24.0" y="754.0" font-size="13" fill="#374151" font-weight="bold">GET ops/sec</text>
-  <text x="182" y="781.0" font-size="12" fill="#374151" text-anchor="end">Rapid Cache</text>
-  <rect x="192" y="764.0" width="588" height="26" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="788" y="781.0" font-size="12" fill="#111827" text-anchor="start">8,292</text>
-  <text x="182" y="819.0" font-size="12" fill="#374151" text-anchor="end">Symfony (igbinary)</text>
-  <rect x="192" y="802.0" width="530" height="26" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="730" y="819.0" font-size="12" fill="#111827" text-anchor="start">7,480</text>
-  <text x="182" y="857.0" font-size="12" fill="#374151" text-anchor="end">Symfony (JSON)</text>
-  <rect x="192" y="840.0" width="530" height="26" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="730" y="857.0" font-size="12" fill="#111827" text-anchor="start">7,469</text>
-  <text x="24.0" y="900.0" font-size="13" fill="#374151" font-weight="bold">Total ops/sec</text>
-  <text x="182" y="927.0" font-size="12" fill="#374151" text-anchor="end">Rapid Cache</text>
-  <rect x="192" y="910.0" width="588" height="26" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
-  <text x="788" y="927.0" font-size="12" fill="#111827" text-anchor="start">8,123</text>
-  <text x="182" y="965.0" font-size="12" fill="#374151" text-anchor="end">Symfony (JSON)</text>
-  <rect x="192" y="948.0" width="363" height="26" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
-  <text x="563" y="965.0" font-size="12" fill="#111827" text-anchor="start">5,021</text>
-  <text x="182" y="1003.0" font-size="12" fill="#374151" text-anchor="end">Symfony (igbinary)</text>
-  <rect x="192" y="986.0" width="361" height="26" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
-  <text x="561" y="1003.0" font-size="12" fill="#111827" text-anchor="start">4,992</text>
+  <text x="24.0" y="128.0" font-size="16" fill="#111827" font-weight="bold">Core</text>
+  <text x="198" y="154.0" font-size="12" fill="#374151" text-anchor="end">getMultiple</text>
+  <rect x="208" y="138.0" width="518" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="734" y="154.0" font-size="12" fill="#111827" text-anchor="start">226,463 ops/sec</text>
+  <text x="198" y="188.0" font-size="12" fill="#374151" text-anchor="end">setMultiple</text>
+  <rect x="208" y="172.0" width="281" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="497" y="188.0" font-size="12" fill="#111827" text-anchor="start">122,890 ops/sec</text>
+  <text x="198" y="222.0" font-size="12" fill="#374151" text-anchor="end">has</text>
+  <rect x="208" y="206.0" width="16" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="232" y="222.0" font-size="12" fill="#111827" text-anchor="start">7,197 ops/sec</text>
+  <text x="198" y="256.0" font-size="12" fill="#374151" text-anchor="end">get</text>
+  <rect x="208" y="240.0" width="15" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="231" y="256.0" font-size="12" fill="#111827" text-anchor="start">6,737 ops/sec</text>
+  <text x="198" y="290.0" font-size="12" fill="#374151" text-anchor="end">set</text>
+  <rect x="208" y="274.0" width="15" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="231" y="290.0" font-size="12" fill="#111827" text-anchor="start">6,422 ops/sec</text>
+  <text x="198" y="324.0" font-size="12" fill="#374151" text-anchor="end">deleteMultiple</text>
+  <rect x="208" y="308.0" width="9" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="225" y="324.0" font-size="12" fill="#111827" text-anchor="start">3,838 ops/sec</text>
+  <text x="198" y="358.0" font-size="12" fill="#374151" text-anchor="end">delete</text>
+  <rect x="208" y="342.0" width="6" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="222" y="358.0" font-size="12" fill="#111827" text-anchor="start">2,482 ops/sec</text>
+  <text x="24.0" y="406.0" font-size="16" fill="#111827" font-weight="bold">Tagging</text>
+  <text x="198" y="432.0" font-size="12" fill="#374151" text-anchor="end">getTagged</text>
+  <rect x="208" y="416.0" width="518" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
+  <text x="734" y="432.0" font-size="12" fill="#111827" text-anchor="start">198,279 ops/sec</text>
+  <text x="198" y="466.0" font-size="12" fill="#374151" text-anchor="end">clearByTag</text>
+  <rect x="208" y="450.0" width="517" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
+  <text x="733" y="466.0" font-size="12" fill="#111827" text-anchor="start">197,715 ops/sec</text>
+  <text x="198" y="500.0" font-size="12" fill="#374151" text-anchor="end">getTagCardinality</text>
+  <rect x="208" y="484.0" width="15" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
+  <text x="231" y="500.0" font-size="12" fill="#111827" text-anchor="start">5,926 ops/sec</text>
+  <text x="198" y="534.0" font-size="12" fill="#374151" text-anchor="end">setTagged</text>
+  <rect x="208" y="518.0" width="15" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
+  <text x="231" y="534.0" font-size="12" fill="#111827" text-anchor="start">5,895 ops/sec</text>
+  <text x="198" y="568.0" font-size="12" fill="#374151" text-anchor="end">untag</text>
+  <rect x="208" y="552.0" width="9" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
+  <text x="225" y="568.0" font-size="12" fill="#111827" text-anchor="start">3,565 ops/sec</text>
+  <text x="198" y="602.0" font-size="12" fill="#374151" text-anchor="end">tag</text>
+  <rect x="208" y="586.0" width="9" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
+  <text x="225" y="602.0" font-size="12" fill="#111827" text-anchor="start">3,521 ops/sec</text>
+  <text x="24.0" y="650.0" font-size="16" fill="#111827" font-weight="bold">Counters</text>
+  <text x="198" y="676.0" font-size="12" fill="#374151" text-anchor="end">increase</text>
+  <rect x="208" y="660.0" width="518" height="24" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
+  <text x="734" y="676.0" font-size="12" fill="#111827" text-anchor="start">7,098 ops/sec</text>
+  <text x="198" y="710.0" font-size="12" fill="#374151" text-anchor="end">decrease</text>
+  <rect x="208" y="694.0" width="511" height="24" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
+  <text x="727" y="710.0" font-size="12" fill="#111827" text-anchor="start">7,005 ops/sec</text>
 </svg>
