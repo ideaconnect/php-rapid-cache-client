@@ -1,6 +1,7 @@
 # IDCT Rapid Cache Client
 
 ![Tests status](https://github.com/ideaconnect/php-rapid-cache-client/workflows/CI/badge.svg)
+[![codecov](https://codecov.io/gh/ideaconnect/php-rapid-cache-client/graph/badge.svg?token=vLwVqbQk5f)](https://codecov.io/gh/ideaconnect/php-rapid-cache-client)
 ![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/ideaconnect/php-rapid-cache-client?label=latest%20version&sort=semver)
 ![PHP version](https://img.shields.io/badge/php-%3E%3D8.2-8892BF)
 ![License](https://img.shields.io/badge/license-MIT-green)
