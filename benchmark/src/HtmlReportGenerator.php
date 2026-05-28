@@ -18,9 +18,13 @@ class HtmlReportGenerator
 
     /** @var array<string, array{bg: string, border: string}> */
     private const PALETTE = [
-        'Core'     => ['bg' => 'rgba(59, 130, 246, 0.75)', 'border' => 'rgb(37, 99, 235)'],
-        'Tagging'  => ['bg' => 'rgba(16, 185, 129, 0.75)', 'border' => 'rgb(5, 150, 105)'],
-        'Counters' => ['bg' => 'rgba(245, 158, 11, 0.75)', 'border' => 'rgb(217, 119, 6)'],
+        'Core'          => ['bg' => 'rgba(59, 130, 246, 0.75)', 'border' => 'rgb(37, 99, 235)'],
+        'Tagging'       => ['bg' => 'rgba(16, 185, 129, 0.75)', 'border' => 'rgb(5, 150, 105)'],
+        'Counters'      => ['bg' => 'rgba(245, 158, 11, 0.75)', 'border' => 'rgb(217, 119, 6)'],
+        'Hash Core'     => ['bg' => 'rgba(139, 92, 246, 0.75)', 'border' => 'rgb(124, 58, 237)'],
+        'Hash Fields'   => ['bg' => 'rgba(236, 72, 153, 0.75)', 'border' => 'rgb(219, 39, 119)'],
+        'Hash Tagging'  => ['bg' => 'rgba(20, 184, 166, 0.75)', 'border' => 'rgb(13, 148, 136)'],
+        'Hash Counters' => ['bg' => 'rgba(244, 63, 94, 0.75)',  'border' => 'rgb(225, 29, 72)'],
     ];
     private const DEFAULT_COLOR = ['bg' => 'rgba(107, 114, 128, 0.75)', 'border' => 'rgb(75, 85, 99)'];
 

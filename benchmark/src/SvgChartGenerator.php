@@ -36,9 +36,13 @@ class SvgChartGenerator
 
     /** @var array<string, array{0: string, 1: string}> category => [fill, stroke] */
     private const PALETTE = [
-        'Core'     => ['rgb(59, 130, 246)', 'rgb(37, 99, 235)'],
-        'Tagging'  => ['rgb(16, 185, 129)', 'rgb(5, 150, 105)'],
-        'Counters' => ['rgb(245, 158, 11)', 'rgb(217, 119, 6)'],
+        'Core'          => ['rgb(59, 130, 246)', 'rgb(37, 99, 235)'],
+        'Tagging'       => ['rgb(16, 185, 129)', 'rgb(5, 150, 105)'],
+        'Counters'      => ['rgb(245, 158, 11)', 'rgb(217, 119, 6)'],
+        'Hash Core'     => ['rgb(139, 92, 246)', 'rgb(124, 58, 237)'],
+        'Hash Fields'   => ['rgb(236, 72, 153)', 'rgb(219, 39, 119)'],
+        'Hash Tagging'  => ['rgb(20, 184, 166)', 'rgb(13, 148, 136)'],
+        'Hash Counters' => ['rgb(244, 63, 94)',  'rgb(225, 29, 72)'],
     ];
     private const DEFAULT_COLOR = ['rgb(107, 114, 128)', 'rgb(75, 85, 99)'];
 

@@ -18,6 +18,7 @@ parameters:
         - identifier: method.nameCase
           paths:
             - src/RapidCacheClient.php
+            - src/HashRapidCacheClient.php
 
         # PHPUnit's $this->assertSame() etc. are technically dynamic calls to static
         # methods, but this is the canonical PHPUnit assertion idiom.

@@ -53,6 +53,7 @@ Thumbs.db
 # Composer-installed dependencies — never commit these. Unanchored so it also
 # covers nested Composer projects such as benchmark/vendor/.
 vendor/
+benchmark/vendor/
 
 # Composer lock files. The library itself does not pin a lock (consumers
 # resolve their own); the benchmark/ sub-project is likewise reproduced via

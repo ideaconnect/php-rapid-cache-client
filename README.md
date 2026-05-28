@@ -14,14 +14,27 @@ applications keep reaching for but PSR-16 leaves out: **tag-based grouping and
 invalidation, FIFO queues, sets, sorted sets, and atomic counters** - all
 exposed through the `CacheServiceInterface` contract.
 
-Speed comes from two deliberate choices: it talks to Redis (or any
+The package ships **two clients** that share the same PSR-16 + tagging
+surface but differ in how values land in Redis:
+
+- **`RapidCacheClient`** — the general-purpose client. Stores any
+  serializable PHP value (objects, nested arrays, `DateTime`, …) as a single
+  Redis STRING using the compact binary `ext-igbinary` serializer. Adds
+  queues, sets, sorted sets, and whole-value counters on top.
+- **`HashRapidCacheClient`** — purpose-built for flat associative arrays of
+  scalars. Each value is stored as a native Redis HASH so individual fields
+  can be read, written, or atomically incremented without round-tripping the
+  whole record (`HGET`/`HSET`/`HINCRBY`). No serializer — the wire format is
+  plain Redis hash fields.
+
+Speed comes from two deliberate choices: both clients talk to Redis (or any
 Redis-compatible server such as [Valkey](https://valkey.io/)) through the
-native `ext-redis` C extension, and it serializes values with the compact
-binary `ext-igbinary` serializer so arbitrary PHP values - objects, nested
-arrays, `DateTime`, … - round-trip losslessly and cheaply. Bulk operations are
-pipelined and chunked, connections are established lazily and re-established
-transparently, and every Redis-level error is translated into a PSR-16
-exception so your calling code stays backend-agnostic.
+native `ext-redis` C extension, and the string client serializes values with
+`ext-igbinary` so arbitrary PHP values round-trip losslessly and cheaply.
+Bulk operations are pipelined and chunked, connections are established
+lazily and re-established transparently, and every Redis-level error is
+translated into a PSR-16 exception so your calling code stays
+backend-agnostic.
 
 ## Quick example
 
@@ -44,7 +57,26 @@ $cache->setTagged('user.123', $user, 'active-users');
 $cache->clearByTag('active-users');
 ```
 
+…and the same surface as a Redis HASH when the value is a flat record and
+you want per-field reads / writes / atomic counters:
+
+```php
+use IDCT\Cache\HashRapidCacheClient;
+
+$hash = new HashRapidCacheClient('localhost', 6379, 'myapp:');
+
+// Whole hash in one round-trip
+$hash->set('user.123', ['name' => 'John Doe', 'visits' => 0, 'plan' => 'pro'], 3600);
+
+// Single-field operations - no need to fetch the whole record
+$plan = $hash->getField('user.123', 'plan');                  // HGET
+$hash->setField('user.123', 'last_seen', '2026-05-28');       // HSET
+$visits = $hash->incrementField('user.123', 'visits', 1);     // HINCRBY - atomic
+```
+
 ## Features
+
+Shared by both clients:
 
 - **PSR-16 SimpleCache** - drop-in compatible with any PSR-16 consumer
   (implements `Psr\SimpleCache\CacheInterface`).
@@ -52,23 +84,38 @@ $cache->clearByTag('active-users');
   multi-key variants `getMultiple`, `setMultiple`, `deleteMultiple`.
 - **Flexible TTLs** - `int` seconds or `\DateInterval`; a non-positive TTL
   deletes the entry, per the spec.
-- **Lossless serialization** - igbinary handles objects, nested arrays,
-  `DateTime`, etc., automatically.
 - **Tagging system** - associate keys with tags (`setTagged`, `tag`, `untag`)
   and read or invalidate them in bulk (`getTagged`, `clearByTag`,
-  `getTagCardinality`).
-- **Queues** - Redis lists used as FIFO queues: `enqueue`, `pop`, `peek`,
-  `getQueue`, `getQueueLength`.
-- **Sets** - unique collections: `createSet`, `addToSet`, `removeFromSet`,
-  `getSet`, `getCardinality`.
-- **Sorted sets** - ordered, value-resolving iteration via `getSorted`.
-- **Atomic counters** - `increase` / `decrease` backed by Redis `INCRBY`/`DECRBY`.
+  `getTagCardinality`). Each client uses its own tag-index namespace so the
+  two can coexist on the same Redis instance without colliding.
 - **Key namespacing** - an optional prefix isolates your keys on a shared
   Redis instance; `clear()` is prefix-scoped and never touches other apps' data.
 - **Resilient connections** - lazy connect, transparent reconnect, optional
   retry-once on transient errors, and PSR-16 exception translation.
 - **Tunable performance** - configurable pipeline batch size, persistent
   connections, and finite connect/read timeouts via `RedisConnectionConfig`.
+
+Specific to `RapidCacheClient`:
+
+- **Lossless serialization** - igbinary handles objects, nested arrays,
+  `DateTime`, etc., automatically.
+- **Queues** - Redis lists used as FIFO queues: `enqueue`, `pop`, `peek`,
+  `getQueue`, `getQueueLength`.
+- **Sets** - unique collections: `createSet`, `addToSet`, `removeFromSet`,
+  `getSet`, `getCardinality`.
+- **Sorted sets** - ordered, value-resolving iteration via `getSorted`.
+- **Atomic counters** - `increase` / `decrease` backed by Redis `INCRBY`/`DECRBY`.
+
+Specific to `HashRapidCacheClient`:
+
+- **Native Redis HASH storage** - each value is a flat associative array of
+  scalars stored field-for-field as a Redis HASH; no serializer, no
+  whole-value round-trips for a single-field read.
+- **Single- and multi-field operations** - `getField` / `setField` /
+  `hasField` / `deleteField` (`HGET`/`HSET`/`HEXISTS`/`HDEL`) and the bulk
+  forms `getFields` / `setFields` / `deleteFields` (`HMGET`/`HMSET`/`HDEL`).
+- **Atomic field counters** - `incrementField` / `decrementField` backed by
+  Redis `HINCRBY` / `HINCRBYFLOAT` operate in place on individual fields.
 
 ## Sponsorship ❤️
 
@@ -99,6 +146,7 @@ Thank you to everyone who already supports the project! 🙏
   - [Sets](#sets)
   - [Sorted sets](#sorted-sets)
   - [Atomic counters](#atomic-counters)
+  - [Hash storage (`HashRapidCacheClient`)](#hash-storage-hashrapidcacheclient)
   - [Error handling](#error-handling)
   - [Behavior notes](#behavior-notes)
 - [Contributing](#contributing)
@@ -115,11 +163,17 @@ Thank you to everyone who already supports the project! 🙏
 
 ## Benchmarks
 
-`RapidCacheClient` ships with a self-benchmark that measures the throughput of
-its own operations, grouped into **Core**, **Tagging** and **Counters**. It is
-not a comparison against another library - it answers "how many of each
-operation does RapidCache sustain per second on this host". The chart is
-regenerated by CI and published to the `assets` branch:
+The package ships with a self-benchmark that measures the throughput of both
+clients' operations against the same Valkey/Redis instance. There is no
+cross-library comparison - it answers "how many of each operation does each
+client sustain per second on this host". Results are grouped into six
+categories:
+
+- `RapidCacheClient` → **Core**, **Tagging**, **Counters**
+- `HashRapidCacheClient` → **Hash Core**, **Hash Fields**, **Hash Tagging**,
+  **Hash Counters**
+
+The chart is regenerated by CI and published to the `assets` branch:
 
 ![Benchmark results](https://raw.githubusercontent.com/ideaconnect/php-rapid-cache-client/assets/benchmark.svg)
 
@@ -127,14 +181,19 @@ Each bar is one operation, in operations per second (higher is better), on a
 scale local to its category. The useful signal is the **shape**, not the
 absolute height:
 
-- **Single-key operations** (`set`, `get`, `setTagged`, `increase`, …) each cost
-  one network round-trip, so they cluster together - that floor is the
-  round-trip latency to your Redis, not RapidCache's own overhead.
+- **Single-key operations** (`set`, `get`, `setTagged`, `increase`,
+  `getField`, …) each cost one network round-trip, so they cluster together -
+  that floor is the round-trip latency to your Redis, not RapidCache's own
+  overhead.
 - **Pipelined / bulk operations** are far faster because they amortise
   round-trips: `setMultiple` / `getMultiple` chunk many keys per call, and
   `getTagged` / `clearByTag` resolve an entire tag with `SMEMBERS` + a single
   `MGET` or batched delete. This is the throughput path - prefer the multi-key
   and tag-bulk APIs in hot loops.
+- The hash client's **field-level operations** (`getField`, `setField`,
+  `incrementField`, …) cost the same single round-trip as a whole-value
+  `get` / `set` but move only the affected field over the wire - the win is
+  bandwidth and contention on big records, not raw ops/sec.
 
 > Absolute numbers depend entirely on the runner hardware and the network path
 > to Redis - treat the chart as the relative cost of single round-trips vs.
@@ -408,6 +467,85 @@ $cache->decrease('page-views', 1);
 
 $views = $cache->get('page-views');
 ```
+
+### Hash storage (`HashRapidCacheClient`)
+
+Use `HashRapidCacheClient` when each cached value is a **flat associative
+array of scalars** (a record) and you want to read, write, or atomically
+modify individual fields without ever round-tripping the whole record. Each
+value lives in Redis as a native HASH, indexed by field name — there is no
+serializer involved, so wire payloads are plain Redis hash fields.
+
+```php
+use IDCT\Cache\HashRapidCacheClient;
+
+$hash = new HashRapidCacheClient('localhost', 6379, 'myapp:');
+
+// PSR-16 surface works as expected; values must be a non-empty flat
+// associative array of string/int/float scalars.
+$hash->set('user.123', [
+    'name'  => 'John Doe',
+    'plan'  => 'pro',
+    'score' => 1000,
+], 3600);
+
+// Whole-record read returns the hash as a flat array
+$user = $hash->get('user.123');           // ['name' => 'John Doe', …]
+```
+
+Single-field operations don't move the rest of the record across the wire:
+
+```php
+$plan = $hash->getField('user.123', 'plan');                 // HGET
+$hash->setField('user.123', 'last_seen', '2026-05-28');      // HSET
+$hash->deleteField('user.123', 'score');                     // HDEL
+if ($hash->hasField('user.123', 'plan')) { … }               // HEXISTS
+```
+
+Multi-field reads/writes:
+
+```php
+// Read several fields at once
+$slice = $hash->getFields('user.123', ['name', 'plan']);     // HMGET
+//   ['name' => 'John Doe', 'plan' => 'pro']
+
+// Merge fields into the existing record (does NOT clear unrelated fields)
+$hash->setFields('user.123', ['score' => 2000, 'plan' => 'enterprise']);
+
+// Remove several fields at once
+$hash->deleteFields('user.123', ['score', 'last_seen']);     // HDEL …
+```
+
+Atomic counters operate in place on a single field, so multiple processes
+can hit the same counter without a read-modify-write cycle:
+
+```php
+$views = $hash->incrementField('page.views', 'count', 1);    // HINCRBY
+$saved = $hash->incrementField('account.42', 'balance', 9.99); // HINCRBYFLOAT
+$hash->decrementField('inventory.sku-7', 'stock', 1);
+```
+
+Tagging mirrors the string client and uses a separate index namespace
+(`H_TAG:` / `H_TAGS:`) so both clients can share the same Redis prefix
+without colliding:
+
+```php
+$hash->setTagged('user.123', $userRecord, 'active-users', 3600);
+foreach ($hash->getTagged('active-users') as $key => $record) { … }
+$hash->clearByTag('active-users');
+```
+
+What you give up vs. `RapidCacheClient`:
+
+- **No type fidelity beyond scalars.** `bool`, `null`, nested arrays, objects,
+  resources are rejected at `set()` with
+  `Psr\SimpleCache\InvalidArgumentException`. Use `RapidCacheClient` (with
+  igbinary) when the cached value isn't a flat record.
+- **No per-field TTL.** The whole hash expires as a unit via `PEXPIRE`. Set
+  the TTL on `set()`; subsequent `setField()` calls leave the existing TTL
+  in place.
+- **Queues / sets / sorted sets are not exposed** — those live on
+  `RapidCacheClient` and can be used side-by-side on the same connection.
 
 ### Error handling
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+use IDCT\Cache\HashRapidCacheClient;
 use IDCT\Cache\RapidCacheClient;
 use IDCT\RapidCacheBenchmark\BenchmarkRunner;
 use IDCT\RapidCacheBenchmark\HtmlReportGenerator;
@@ -14,8 +15,10 @@ use IDCT\RapidCacheBenchmark\SystemInfo;
 function showHelp(): void
 {
     echo "IDCT Rapid Cache — Feature Benchmark\n\n";
-    echo "Profiles the throughput of RapidCache's own operations (Core, Tagging,\n";
-    echo "Counters). There is no cross-library comparison.\n\n";
+    echo "Profiles the throughput of RapidCache's own operations across BOTH clients:\n";
+    echo "  - RapidCacheClient     (Core, Tagging, Counters)\n";
+    echo "  - HashRapidCacheClient (Hash Core, Hash Tagging, Hash Counters)\n";
+    echo "There is no cross-library comparison.\n\n";
     echo "Usage: php bin/benchmark.php [options]\n\n";
     echo "Options:\n";
     echo "  --items=<count>     Number of items per operation (default: 100000)\n";
@@ -96,9 +99,14 @@ function main(): void
     }
 
     $cache = new RapidCacheClient($options['host'], $options['port'], 'rapid-cache:');
+    $hashCache = new HashRapidCacheClient($options['host'], $options['port'], 'rapid-cache:');
 
     $runner = new BenchmarkRunner();
     $results = $runner->run($cache, $options['items'], $options['tags'], $options['counters']);
+    $results = array_merge(
+        $results,
+        $runner->runHash($hashCache, $options['items'], $options['tags'], $options['counters']),
+    );
 
     if ($options['report'] !== null || $options['chart'] !== null) {
         $context = [
