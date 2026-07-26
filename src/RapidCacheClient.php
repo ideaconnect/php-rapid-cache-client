@@ -375,7 +375,19 @@ class RapidCacheClient implements CacheServiceInterface
                 return $default;
             }
 
-            $this->unindexKey($key);
+            // From here on the value is already gone from Redis and this call
+            // is the only place it still exists, so tag bookkeeping must not be
+            // allowed to discard it. Letting a transport error escape would
+            // send the caller back through wrap()'s retry, where EXISTS now
+            // reports 0 and take() answers "nothing was there" for a value it
+            // had already destroyed. A stale tag pointer is the cheaper
+            // failure: getTagged() and clearByTag() prune members whose key has
+            // gone on their next pass.
+            try {
+                $this->unindexKey($key);
+            } catch (RedisException) {
+                // Deliberately swallowed. See above: the value outranks the index.
+            }
 
             // $results[1] may legitimately be false: that is a stored false,
             // not a miss, which is why EXISTS was asked in the same breath.

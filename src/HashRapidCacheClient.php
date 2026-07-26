@@ -396,7 +396,14 @@ class HashRapidCacheClient implements CacheInterface
                 return $default;
             }
 
-            $this->unindexKey($key);
+            // The hash is already gone at this point, so tag bookkeeping must
+            // not be allowed to discard the value it returned. See
+            // {@see RapidCacheClient::take()} for the reasoning.
+            try {
+                $this->unindexKey($key);
+            } catch (\RedisException) {
+                // Deliberately swallowed: the value outranks the index.
+            }
 
             return $value;
         });

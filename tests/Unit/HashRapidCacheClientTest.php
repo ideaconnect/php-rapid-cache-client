@@ -486,6 +486,21 @@ class HashRapidCacheClientTest extends TestCase
         $this->assertNull($this->cacheService->take('test-key'));
     }
 
+    /**
+     * The hash is already gone once the transaction has run, so a transport
+     * error while unindexing must not discard the value it returned.
+     */
+    public function testTakeStillReturnsTheValueWhenUnindexingFails(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->method('exec')->willReturn([['field' => 'value'], 1]);
+        $this->redisMock->method('sMembers')
+            ->willThrowException(new \RedisException('transient blip'));
+
+        $this->assertSame(['field' => 'value'], $this->cacheService->take('test-key'));
+    }
+
     public function testTakeRejectsInvalidKey(): void
     {
         $this->expectException(PsrInvalidArgumentException::class);

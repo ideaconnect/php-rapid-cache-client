@@ -437,6 +437,25 @@ class RapidCacheClientTest extends TestCase
         $this->assertNull($this->cacheService->take('test-key'));
     }
 
+    /**
+     * Once GETDEL has run, this call is the only place the value still exists.
+     * A transport error while unindexing must therefore not discard it: letting
+     * it escape would send the caller through wrap()'s retry, where EXISTS now
+     * reports 0 and take() would answer "nothing was there" for a value it had
+     * already destroyed. A stale tag pointer is the cheaper failure, and one
+     * getTagged()/clearByTag() prune on their next pass.
+     */
+    public function testTakeStillReturnsTheValueWhenUnindexingFails(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->method('exec')->willReturn([1, 'stored-value']);
+        $this->redisMock->method('sMembers')
+            ->willThrowException(new \RedisException('transient blip'));
+
+        $this->assertSame('stored-value', $this->cacheService->take('test-key'));
+    }
+
     public function testTakeRejectsInvalidKey(): void
     {
         $this->expectException(PsrInvalidArgumentException::class);
