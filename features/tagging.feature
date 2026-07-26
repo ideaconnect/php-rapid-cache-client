@@ -130,3 +130,10 @@ Feature: Tagging
     Then the cache should not contain key "blip"
     When I retrieve items by tag "skipped"
     Then the retrieved values should be empty
+
+  Scenario: Taking a tagged key removes it from its tag index
+    Given I set a cache item with key "once" and value "v" with tag "claims"
+    When I take the cache item with key "once"
+    Then the retrieved value should be "v"
+    When I retrieve items by tag "claims"
+    Then the retrieved values should be empty

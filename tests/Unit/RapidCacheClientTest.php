@@ -319,6 +319,131 @@ class RapidCacheClientTest extends TestCase
     }
 
     /**
+     * take() must read and remove inside one MULTI/EXEC, so no other client can
+     * observe the value in between. EXISTS rides along in the same transaction
+     * purely to tell a stored `false` from a miss.
+     */
+    public function testTakeReturnsValueAndRemovesKey(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->expects($this->once())
+            ->method('multi')
+            ->with(Redis::MULTI);
+        $this->redisMock->expects($this->once())
+            ->method('exists')
+            ->with('test-key');
+        $this->redisMock->expects($this->once())
+            ->method('getDel')
+            ->with('test-key');
+        $this->redisMock->expects($this->once())
+            ->method('exec')
+            ->willReturn([1, 'stored-value']);
+        $this->redisMock->method('sMembers')->willReturn([]);
+
+        $this->assertSame('stored-value', $this->cacheService->take('test-key'));
+    }
+
+    /**
+     * Nothing to take means the default comes back and no tag bookkeeping runs.
+     */
+    public function testTakeReturnsDefaultWhenKeyIsMissing(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->expects($this->once())
+            ->method('exec')
+            ->willReturn([0, false]);
+        $this->redisMock->expects($this->never())->method('sMembers');
+
+        $this->assertSame('fallback', $this->cacheService->take('test-key', 'fallback'));
+    }
+
+    /**
+     * GETDEL alone cannot tell a stored literal `false` from a miss: both come
+     * back as false and the key is already gone. The EXISTS reply in the same
+     * transaction is what separates them.
+     */
+    public function testTakeDistinguishesStoredFalseFromMiss(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->expects($this->once())
+            ->method('exec')
+            ->willReturn([1, false]);
+        $this->redisMock->method('sMembers')->willReturn([]);
+
+        $this->assertFalse($this->cacheService->take('test-key', 'fallback'));
+    }
+
+    /**
+     * A taken key must not linger in the tag sets it belonged to, exactly as
+     * delete() unindexes it.
+     */
+    public function testTakeRemovesTagAssociations(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->method('exec')->willReturn([1, 'stored-value']);
+        $this->redisMock->expects($this->once())
+            ->method('sMembers')
+            ->with('TAGS:test-key')
+            ->willReturn(['tag1']);
+        $this->redisMock->expects($this->once())
+            ->method('sRem')
+            ->with('TAG:tag1', 'test-key')
+            ->willReturn(1);
+
+        $this->assertSame('stored-value', $this->cacheService->take('test-key'));
+    }
+
+    /**
+     * A transaction that was discarded, for instance because the connection
+     * dropped mid-flight, reports false rather than an array. Treat that as
+     * nothing taken instead of trusting a partial reply.
+     */
+    public function testTakeReturnsDefaultWhenTransactionFails(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->expects($this->once())
+            ->method('exec')
+            ->willReturn(false);
+        $this->redisMock->expects($this->never())->method('sMembers');
+
+        $this->assertSame('fallback', $this->cacheService->take('test-key', 'fallback'));
+    }
+
+    /**
+     * A short reply cannot be interpreted either, so it is treated the same way.
+     */
+    public function testTakeReturnsDefaultWhenTransactionReplyIsIncomplete(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->expects($this->once())
+            ->method('exec')
+            ->willReturn([1]);
+        $this->redisMock->expects($this->never())->method('sMembers');
+
+        $this->assertSame('fallback', $this->cacheService->take('test-key', 'fallback'));
+    }
+
+    public function testTakeReturnsNullByDefaultWhenKeyIsMissing(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->method('exec')->willReturn([0, false]);
+
+        $this->assertNull($this->cacheService->take('test-key'));
+    }
+
+    public function testTakeRejectsInvalidKey(): void
+    {
+        $this->expectException(PsrInvalidArgumentException::class);
+        $this->cacheService->take('');
+    }
+
+    /**
      * clear() with a prefix configured must NOT call FLUSHDB (that'd wipe other
      * apps sharing the database). Instead: temporarily disable phpredis's auto
      * prefixing, SCAN/UNLINK only `<prefix>*` in batches, then restore the

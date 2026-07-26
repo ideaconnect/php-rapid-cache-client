@@ -320,6 +320,70 @@ class RapidCacheClient implements CacheServiceInterface
     }
 
     /**
+     * Reads a key and removes it in one atomic step.
+     *
+     * get() followed by delete() leaves a window in which another client can
+     * read the same value, so both callers believe they claimed it. That is
+     * fatal for anything meant to be used exactly once - a single-use token, a
+     * job claim, a one-shot coupon - and this method closes it.
+     *
+     * EXISTS and GETDEL are issued inside a MULTI/EXEC transaction. GETDEL
+     * alone would be atomic, but it cannot distinguish a stored literal false
+     * from a miss: both come back as false and the key is gone by the time you
+     * could probe for it. Pairing it with EXISTS in the same transaction keeps
+     * the read-and-remove indivisible while preserving the type fidelity
+     * {@see get()} offers.
+     *
+     * Tag bookkeeping is settled afterwards via {@see unindexKey()}, exactly as
+     * {@see delete()} does, so a taken key does not linger in the tag sets it
+     * belonged to.
+     *
+     * Requires Redis or Valkey 6.2, the release that introduced GETDEL.
+     *
+     * @param string $key     PSR-16 compliant cache key
+     * @param mixed  $default Returned when the key holds nothing
+     *
+     * @return mixed The stored value, or $default when the key was not set.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testTakeReturnsValueAndRemovesKey()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testTakeReturnsDefaultWhenKeyIsMissing()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testTakeDistinguishesStoredFalseFromMiss()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testTakeRemovesTagAssociations()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testTakeReturnsDefaultWhenTransactionFails()
+     * @see \IDCT\Tests\Cache\Unit\RapidCacheClientTest::testTakeRejectsInvalidKey()
+     */
+    public function take(string $key, mixed $default = null): mixed
+    {
+        $this->validateKey($key);
+        return $this->wrap(function () use ($key, $default) {
+            $redis = $this->getRedis();
+            $redis->multi(Redis::MULTI);
+            $redis->exists($key);
+            $redis->getDel($key);
+            $results = $redis->exec();
+
+            if (!is_array($results) || count($results) < 2) {
+                return $default;
+            }
+
+            // EXISTS reports how many of the named keys were present, so
+            // anything other than one means there was nothing to take.
+            if ($results[0] !== 1) {
+                return $default;
+            }
+
+            $this->unindexKey($key);
+
+            // $results[1] may legitimately be false: that is a stored false,
+            // not a miss, which is why EXISTS was asked in the same breath.
+            return $results[1];
+        });
+    }
+
+    /**
      * Clears the cache.
      *
      * With a prefix configured: scans for `<prefix>*` and UNLINKs in batches,

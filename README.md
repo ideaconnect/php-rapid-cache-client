@@ -82,6 +82,9 @@ Shared by both clients:
   (implements `Psr\SimpleCache\CacheInterface`).
 - **Core cache operations** - `get`, `set`, `delete`, `clear`, `has`, plus the
   multi-key variants `getMultiple`, `setMultiple`, `deleteMultiple`.
+- **Atomic take** - `take()` reads a key and removes it in one indivisible
+  step, so a value can be claimed exactly once even when several processes go
+  for it together. PSR-16 alone cannot express this.
 - **Flexible TTLs** - `int` seconds or `\DateInterval`; a non-positive TTL
   deletes the entry, per the spec.
 - **Tagging system** - associate keys with tags (`setTagged`, `tag`, `untag`)
@@ -341,6 +344,34 @@ if ($cache->has('user.123')) {
 $cache->delete('user.123');
 $cache->clear();
 ```
+
+#### `take()` - claim a value exactly once
+
+`get()` then `delete()` leaves a window in which another client reads the same
+value, so two callers can both believe they claimed it. `take()` closes it:
+
+```php
+$cache->set('reset.token.abc', ['user_id' => 123]);
+
+$payload = $cache->take('reset.token.abc');   // ['user_id' => 123], key is gone
+$payload = $cache->take('reset.token.abc');   // null - nobody else can get it
+$payload = $cache->take('missing', 'default');
+```
+
+EXISTS and GETDEL are issued inside one `MULTI`/`EXEC`, so the read and the
+removal are indivisible. EXISTS rides along purely to tell a stored literal
+`false` from a miss, the same distinction `get()` makes. Tag associations are
+cleaned up exactly as `delete()` does.
+
+Under eight processes racing for one key, `take()` produced exactly one winner
+where `get()` plus `delete()` produced seven.
+
+Use it for anything meant to be consumed once: single-use tokens, job claims,
+one-shot coupons, idempotency keys.
+
+> Requires Redis or Valkey **6.2+**, the release that introduced `GETDEL`.
+> `HashRapidCacheClient` offers the same method, backed by `HGETALL` + `DEL` in
+> one transaction.
 
 > **PSR-16 key rules** - keys must be non-empty strings; the characters
 > `{}()/\@:` are reserved and rejected with a

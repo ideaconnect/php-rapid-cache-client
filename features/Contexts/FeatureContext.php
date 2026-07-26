@@ -82,6 +82,22 @@ class FeatureContext implements Context
     }
 
     /**
+     * @When I take the cache item with key :key
+     */
+    public function iTakeTheCacheItemWithKey(string $key): void
+    {
+        $this->retrievedValue = $this->cacheService->take($key);
+    }
+
+    /**
+     * @When I take the cache item with key :key with default :default
+     */
+    public function iTakeWithDefault(string $key, string $default): void
+    {
+        $this->retrievedValue = $this->cacheService->take($key, $default);
+    }
+
+    /**
      * @When I delete the cache item with key :key
      */
     public function iDeleteTheCacheItemWithKey(string $key): void

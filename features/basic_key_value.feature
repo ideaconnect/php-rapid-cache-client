@@ -70,3 +70,32 @@ Feature: Basic key/value operations
   Scenario: clear() on an already-empty cache succeeds
     When I clear the cache
     Then the cache should not contain key "anything"
+
+  # ---------- take(): read and remove in one atomic step ----------
+
+  Scenario: Taking an item returns the value and removes it
+    Given I set a cache item with key "claim" and value "prize"
+    When I take the cache item with key "claim"
+    Then the retrieved value should be "prize"
+    And the cache should not contain key "claim"
+
+  Scenario: Taking the same item twice yields nothing the second time
+    Given I set a cache item with key "claim" and value "prize"
+    When I take the cache item with key "claim"
+    And I take the cache item with key "claim"
+    Then the retrieved value should be null
+
+  Scenario: Taking a missing key returns null
+    When I take the cache item with key "ghost"
+    Then the retrieved value should be null
+
+  Scenario: Taking a missing key with a default returns the default
+    When I take the cache item with key "ghost" with default "fallback"
+    Then the retrieved value should be "fallback"
+
+  Scenario: Taking leaves other keys alone
+    Given I set a cache item with key "claim" and value "prize"
+    And I set a cache item with key "bystander" and value "untouched"
+    When I take the cache item with key "claim"
+    Then the cache should not contain key "claim"
+    And the cache should contain key "bystander"

@@ -15,6 +15,26 @@ use Psr\SimpleCache\CacheInterface;
 interface CacheServiceInterface extends CacheInterface
 {
     /**
+     * Reads a key and removes it in one atomic step.
+     *
+     * PSR-16 can only offer get() then delete(), two round trips with a gap in
+     * between where another client can read the same value. Whoever needs a
+     * value claimed exactly once - a single-use token, a job claim, a one-shot
+     * coupon - needs that gap closed.
+     *
+     * A stored literal false is returned as false, not as $default, the same
+     * way get() distinguishes the two.
+     *
+     * @param string $key     PSR-16 compliant cache key
+     * @param mixed  $default Returned when the key holds nothing
+     *
+     * @return mixed The stored value, or $default when the key was not set.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException
+     */
+    public function take(string $key, mixed $default = null): mixed;
+
+    /**
      * Stores a value and associates it with a tag in a single call.
      *
      * @param string $key   PSR-16 compliant cache key

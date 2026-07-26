@@ -396,6 +396,102 @@ class HashRapidCacheClientTest extends TestCase
         $this->cacheService->delete('bad:key');
     }
 
+    /**
+     * take() reads and removes the hash inside one MULTI/EXEC, so no other
+     * client can see it in between.
+     */
+    public function testTakeReturnsHashAndRemovesKey(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->expects($this->atLeastOnce())
+            ->method('multi')
+            ->with(\Redis::MULTI);
+        $this->redisMock->expects($this->once())
+            ->method('hGetAll')
+            ->with('test-key');
+        $this->redisMock->expects($this->once())
+            ->method('exec')
+            ->willReturn([['field' => 'value'], 1]);
+        $this->redisMock->method('sMembers')->willReturn([]);
+
+        // Two DELs: the hash itself inside the transaction, then the now-empty
+        // reverse index while unindexing. Dropping either would leave the key
+        // readable or its tag pointer dangling.
+        $delMatcher = $this->exactly(2);
+        $this->redisMock->expects($delMatcher)
+            ->method('del')
+            ->willReturnCallback(function (string $key) use ($delMatcher) {
+                match ($delMatcher->numberOfInvocations()) {
+                    1 => $this->assertSame('test-key', $key),
+                    2 => $this->assertSame('H_TAGS:test-key', $key),
+                };
+
+                return 1;
+            });
+
+        $this->assertSame(['field' => 'value'], $this->cacheService->take('test-key'));
+    }
+
+    public function testTakeReturnsDefaultWhenKeyIsMissing(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->expects($this->once())
+            ->method('exec')
+            ->willReturn([[], 0]);
+        $this->redisMock->expects($this->never())->method('sMembers');
+
+        $this->assertSame('fallback', $this->cacheService->take('test-key', 'fallback'));
+    }
+
+    /**
+     * A discarded transaction reports false rather than an array, which must
+     * not be mistaken for a value.
+     */
+    public function testTakeReturnsDefaultWhenTransactionFails(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->expects($this->once())
+            ->method('exec')
+            ->willReturn(false);
+        $this->redisMock->expects($this->never())->method('sMembers');
+
+        $this->assertSame('fallback', $this->cacheService->take('test-key', 'fallback'));
+    }
+
+    public function testTakeRemovesTagAssociations(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->method('exec')->willReturn([['field' => 'value'], 1]);
+        $this->redisMock->expects($this->once())
+            ->method('sMembers')
+            ->with('H_TAGS:test-key')
+            ->willReturn(['tag1']);
+        $this->redisMock->expects($this->once())
+            ->method('sRem')
+            ->with('H_TAG:tag1', 'test-key')
+            ->willReturn(1);
+
+        $this->assertSame(['field' => 'value'], $this->cacheService->take('test-key'));
+    }
+
+    public function testTakeReturnsNullByDefaultWhenKeyIsMissing(): void
+    {
+        $this->redisMock->method('isConnected')->willReturn(true);
+        $this->redisMock->method('multi')->willReturnSelf();
+        $this->redisMock->method('exec')->willReturn([[], 0]);
+
+        $this->assertNull($this->cacheService->take('test-key'));
+    }
+
+    public function testTakeRejectsInvalidKey(): void
+    {
+        $this->expectException(PsrInvalidArgumentException::class);
+        $this->cacheService->take('bad:key');
+    }
+
     // -------------------------------------------------------------------
     // clear()
     // -------------------------------------------------------------------
@@ -2787,7 +2883,9 @@ class HashRapidCacheClientTest extends TestCase
         $this->redisMock->method('isConnected')->willReturn(true);
         $this->redisMock->method('hExists')->willReturnSelf();
 
-        $this->assertSame(true, $this->cacheService->hasField('k', 'f'));
+        // assertTrue is strict, so this still proves the value was coerced to a
+        // real bool rather than left as a truthy Redis reply.
+        $this->assertTrue($this->cacheService->hasField('k', 'f'));
     }
 
     // -------------------------------------------------------------------

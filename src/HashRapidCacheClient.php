@@ -350,6 +350,59 @@ class HashRapidCacheClient implements CacheInterface
     }
 
     /**
+     * Reads a hash and removes it in one atomic step.
+     *
+     * The hash counterpart of {@see RapidCacheClient::take()}. get() followed
+     * by delete() leaves a window in which another client reads the same value,
+     * so both believe they claimed it, which is fatal for anything meant to be
+     * consumed exactly once.
+     *
+     * HGETALL and DEL are issued inside a MULTI/EXEC transaction, so no other
+     * client can see the hash between the read and the removal. There is no
+     * stored-false ambiguity to resolve here: this client rejects bool and null
+     * on the way in, and an absent hash is simply an empty reply.
+     *
+     * @param string $key     PSR-16 compliant cache key
+     * @param mixed  $default Returned when the key holds nothing
+     *
+     * @return mixed The stored array, or $default when the key was not set.
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException If $key is invalid.
+     * @throws CacheException On Redis transport/storage failures.
+     *
+     * @see \IDCT\Tests\Cache\Unit\HashRapidCacheClientTest::testTakeReturnsHashAndRemovesKey()
+     * @see \IDCT\Tests\Cache\Unit\HashRapidCacheClientTest::testTakeReturnsDefaultWhenKeyIsMissing()
+     * @see \IDCT\Tests\Cache\Unit\HashRapidCacheClientTest::testTakeReturnsDefaultWhenTransactionFails()
+     * @see \IDCT\Tests\Cache\Unit\HashRapidCacheClientTest::testTakeRemovesTagAssociations()
+     * @see \IDCT\Tests\Cache\Unit\HashRapidCacheClientTest::testTakeRejectsInvalidKey()
+     */
+    public function take(string $key, mixed $default = null): mixed
+    {
+        $this->validateKey($key);
+
+        return $this->wrap(function () use ($key, $default) {
+            $redis = $this->getRedis();
+            $redis->multi(\Redis::MULTI);
+            $redis->hGetAll($key);
+            $redis->del($key);
+            $results = $redis->exec();
+
+            if (!\is_array($results) || [] === $results) {
+                return $default;
+            }
+
+            $value = $results[0];
+            if (!\is_array($value) || [] === $value) {
+                return $default;
+            }
+
+            $this->unindexKey($key);
+
+            return $value;
+        });
+    }
+
+    /**
      * Clears the cache.
      *
      * Behaviour mirrors {@see RapidCacheClient::clear()}: with a prefix
