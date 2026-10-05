@@ -2,126 +2,126 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1668" viewBox="0 0 900 1668" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
   <rect x="0" y="0" width="900" height="1668" fill="#ffffff"/>
   <text x="24.0" y="34.0" font-size="22" fill="#111827" font-weight="bold">IDCT Rapid Cache — Feature Benchmark</text>
-  <text x="24.0" y="58.0" font-size="12" fill="#6b7280" font-weight="normal">100,000 items  ·  127.0.0.1:6379  ·  2026-09-28 12:58:45 UTC  ·  ops/sec, higher is better</text>
-  <text x="24.0" y="78.0" font-size="12" fill="#6b7280" font-weight="normal">INTEL(R) XEON(R) PLATINUM 8573C (4 cores)  ·  15.6 GB RAM (14.1 GB free)  ·  GitHub Actions</text>
+  <text x="24.0" y="58.0" font-size="12" fill="#6b7280" font-weight="normal">100,000 items  ·  127.0.0.1:6379  ·  2026-10-05 13:41:54 UTC  ·  ops/sec, higher is better</text>
+  <text x="24.0" y="78.0" font-size="12" fill="#6b7280" font-weight="normal">AMD EPYC 9V74 80-Core Processor (4 cores)  ·  15.6 GB RAM (14.1 GB free)  ·  GitHub Actions</text>
   <line x1="24" y1="92" x2="876" y2="92" stroke="#e5e7eb" stroke-width="1"/>
 
   <text x="24.0" y="128.0" font-size="16" fill="#111827" font-weight="bold">Core</text>
   <text x="198" y="154.0" font-size="12" fill="#374151" text-anchor="end">getMultiple</text>
   <rect x="208" y="138.0" width="518" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="734" y="154.0" font-size="12" fill="#111827" text-anchor="start">297,464 ops/sec</text>
+  <text x="734" y="154.0" font-size="12" fill="#111827" text-anchor="start">155,365 ops/sec</text>
   <text x="198" y="188.0" font-size="12" fill="#374151" text-anchor="end">setMultiple</text>
-  <rect x="208" y="172.0" width="287" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="503" y="188.0" font-size="12" fill="#111827" text-anchor="start">165,050 ops/sec</text>
+  <rect x="208" y="172.0" width="395" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="611" y="188.0" font-size="12" fill="#111827" text-anchor="start">118,376 ops/sec</text>
   <text x="198" y="222.0" font-size="12" fill="#374151" text-anchor="end">has</text>
-  <rect x="208" y="206.0" width="22" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="238" y="222.0" font-size="12" fill="#111827" text-anchor="start">12,643 ops/sec</text>
+  <rect x="208" y="206.0" width="33" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="249" y="222.0" font-size="12" fill="#111827" text-anchor="start">9,804 ops/sec</text>
   <text x="198" y="256.0" font-size="12" fill="#374151" text-anchor="end">get</text>
-  <rect x="208" y="240.0" width="22" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="238" y="256.0" font-size="12" fill="#111827" text-anchor="start">12,414 ops/sec</text>
+  <rect x="208" y="240.0" width="31" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="247" y="256.0" font-size="12" fill="#111827" text-anchor="start">9,261 ops/sec</text>
   <text x="198" y="290.0" font-size="12" fill="#374151" text-anchor="end">set</text>
-  <rect x="208" y="274.0" width="20" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="236" y="290.0" font-size="12" fill="#111827" text-anchor="start">11,582 ops/sec</text>
+  <rect x="208" y="274.0" width="29" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="245" y="290.0" font-size="12" fill="#111827" text-anchor="start">8,585 ops/sec</text>
   <text x="198" y="324.0" font-size="12" fill="#374151" text-anchor="end">deleteMultiple</text>
-  <rect x="208" y="308.0" width="11" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="227" y="324.0" font-size="12" fill="#111827" text-anchor="start">6,554 ops/sec</text>
+  <rect x="208" y="308.0" width="18" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="234" y="324.0" font-size="12" fill="#111827" text-anchor="start">5,273 ops/sec</text>
   <text x="198" y="358.0" font-size="12" fill="#374151" text-anchor="end">delete</text>
-  <rect x="208" y="342.0" width="8" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
-  <text x="224" y="358.0" font-size="12" fill="#111827" text-anchor="start">4,343 ops/sec</text>
+  <rect x="208" y="342.0" width="11" height="24" rx="3" fill="rgb(59, 130, 246)" stroke="rgb(37, 99, 235)" stroke-width="1"/>
+  <text x="227" y="358.0" font-size="12" fill="#111827" text-anchor="start">3,440 ops/sec</text>
   <text x="24.0" y="406.0" font-size="16" fill="#111827" font-weight="bold">Tagging</text>
-  <text x="198" y="432.0" font-size="12" fill="#374151" text-anchor="end">getTagged</text>
+  <text x="198" y="432.0" font-size="12" fill="#374151" text-anchor="end">clearByTag</text>
   <rect x="208" y="416.0" width="518" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="734" y="432.0" font-size="12" fill="#111827" text-anchor="start">245,878 ops/sec</text>
-  <text x="198" y="466.0" font-size="12" fill="#374151" text-anchor="end">clearByTag</text>
-  <rect x="208" y="450.0" width="506" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="722" y="466.0" font-size="12" fill="#111827" text-anchor="start">240,177 ops/sec</text>
+  <text x="734" y="432.0" font-size="12" fill="#111827" text-anchor="start">188,106 ops/sec</text>
+  <text x="198" y="466.0" font-size="12" fill="#374151" text-anchor="end">getTagged</text>
+  <rect x="208" y="450.0" width="475" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
+  <text x="691" y="466.0" font-size="12" fill="#111827" text-anchor="start">172,335 ops/sec</text>
   <text x="198" y="500.0" font-size="12" fill="#374151" text-anchor="end">setTagged</text>
-  <rect x="208" y="484.0" width="22" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="238" y="500.0" font-size="12" fill="#111827" text-anchor="start">10,578 ops/sec</text>
+  <rect x="208" y="484.0" width="21" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
+  <text x="237" y="500.0" font-size="12" fill="#111827" text-anchor="start">7,781 ops/sec</text>
   <text x="198" y="534.0" font-size="12" fill="#374151" text-anchor="end">getTagCardinality</text>
   <rect x="208" y="518.0" width="18" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="234" y="534.0" font-size="12" fill="#111827" text-anchor="start">8,422 ops/sec</text>
+  <text x="234" y="534.0" font-size="12" fill="#111827" text-anchor="start">6,668 ops/sec</text>
   <text x="198" y="568.0" font-size="12" fill="#374151" text-anchor="end">untag</text>
   <rect x="208" y="552.0" width="14" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="230" y="568.0" font-size="12" fill="#111827" text-anchor="start">6,579 ops/sec</text>
+  <text x="230" y="568.0" font-size="12" fill="#111827" text-anchor="start">5,051 ops/sec</text>
   <text x="198" y="602.0" font-size="12" fill="#374151" text-anchor="end">tag</text>
-  <rect x="208" y="586.0" width="13" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
-  <text x="229" y="602.0" font-size="12" fill="#111827" text-anchor="start">6,393 ops/sec</text>
+  <rect x="208" y="586.0" width="14" height="24" rx="3" fill="rgb(16, 185, 129)" stroke="rgb(5, 150, 105)" stroke-width="1"/>
+  <text x="230" y="602.0" font-size="12" fill="#111827" text-anchor="start">4,922 ops/sec</text>
   <text x="24.0" y="650.0" font-size="16" fill="#111827" font-weight="bold">Counters</text>
-  <text x="198" y="676.0" font-size="12" fill="#374151" text-anchor="end">increase</text>
+  <text x="198" y="676.0" font-size="12" fill="#374151" text-anchor="end">decrease</text>
   <rect x="208" y="660.0" width="518" height="24" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
-  <text x="734" y="676.0" font-size="12" fill="#111827" text-anchor="start">12,815 ops/sec</text>
-  <text x="198" y="710.0" font-size="12" fill="#374151" text-anchor="end">decrease</text>
-  <rect x="208" y="694.0" width="517" height="24" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
-  <text x="733" y="710.0" font-size="12" fill="#111827" text-anchor="start">12,797 ops/sec</text>
+  <text x="734" y="676.0" font-size="12" fill="#111827" text-anchor="start">9,814 ops/sec</text>
+  <text x="198" y="710.0" font-size="12" fill="#374151" text-anchor="end">increase</text>
+  <rect x="208" y="694.0" width="516" height="24" rx="3" fill="rgb(245, 158, 11)" stroke="rgb(217, 119, 6)" stroke-width="1"/>
+  <text x="732" y="710.0" font-size="12" fill="#111827" text-anchor="start">9,770 ops/sec</text>
   <text x="24.0" y="758.0" font-size="16" fill="#111827" font-weight="bold">Hash Core</text>
   <text x="198" y="784.0" font-size="12" fill="#374151" text-anchor="end">getMultiple</text>
   <rect x="208" y="768.0" width="518" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
-  <text x="734" y="784.0" font-size="12" fill="#111827" text-anchor="start">321,928 ops/sec</text>
+  <text x="734" y="784.0" font-size="12" fill="#111827" text-anchor="start">265,153 ops/sec</text>
   <text x="198" y="818.0" font-size="12" fill="#374151" text-anchor="end">setMultiple</text>
-  <rect x="208" y="802.0" width="265" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
-  <text x="481" y="818.0" font-size="12" fill="#111827" text-anchor="start">164,874 ops/sec</text>
+  <rect x="208" y="802.0" width="272" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
+  <text x="488" y="818.0" font-size="12" fill="#111827" text-anchor="start">139,448 ops/sec</text>
   <text x="198" y="852.0" font-size="12" fill="#374151" text-anchor="end">has</text>
-  <rect x="208" y="836.0" width="21" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
-  <text x="237" y="852.0" font-size="12" fill="#111827" text-anchor="start">12,907 ops/sec</text>
+  <rect x="208" y="836.0" width="20" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
+  <text x="236" y="852.0" font-size="12" fill="#111827" text-anchor="start">10,135 ops/sec</text>
   <text x="198" y="886.0" font-size="12" fill="#374151" text-anchor="end">get</text>
-  <rect x="208" y="870.0" width="20" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
-  <text x="236" y="886.0" font-size="12" fill="#111827" text-anchor="start">12,537 ops/sec</text>
+  <rect x="208" y="870.0" width="19" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
+  <text x="235" y="886.0" font-size="12" fill="#111827" text-anchor="start">9,508 ops/sec</text>
   <text x="198" y="920.0" font-size="12" fill="#374151" text-anchor="end">set</text>
-  <rect x="208" y="904.0" width="19" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
-  <text x="235" y="920.0" font-size="12" fill="#111827" text-anchor="start">11,804 ops/sec</text>
+  <rect x="208" y="904.0" width="17" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
+  <text x="233" y="920.0" font-size="12" fill="#111827" text-anchor="start">8,650 ops/sec</text>
   <text x="198" y="954.0" font-size="12" fill="#374151" text-anchor="end">deleteMultiple</text>
-  <rect x="208" y="938.0" width="11" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
-  <text x="227" y="954.0" font-size="12" fill="#111827" text-anchor="start">6,627 ops/sec</text>
+  <rect x="208" y="938.0" width="10" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
+  <text x="226" y="954.0" font-size="12" fill="#111827" text-anchor="start">5,301 ops/sec</text>
   <text x="198" y="988.0" font-size="12" fill="#374151" text-anchor="end">delete</text>
   <rect x="208" y="972.0" width="7" height="24" rx="3" fill="rgb(139, 92, 246)" stroke="rgb(124, 58, 237)" stroke-width="1"/>
-  <text x="223" y="988.0" font-size="12" fill="#111827" text-anchor="start">4,447 ops/sec</text>
+  <text x="223" y="988.0" font-size="12" fill="#111827" text-anchor="start">3,511 ops/sec</text>
   <text x="24.0" y="1036.0" font-size="16" fill="#111827" font-weight="bold">Hash Fields</text>
-  <text x="198" y="1062.0" font-size="12" fill="#374151" text-anchor="end">deleteField</text>
+  <text x="198" y="1062.0" font-size="12" fill="#374151" text-anchor="end">hasField</text>
   <rect x="208" y="1046.0" width="518" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
-  <text x="734" y="1062.0" font-size="12" fill="#111827" text-anchor="start">12,946 ops/sec</text>
-  <text x="198" y="1096.0" font-size="12" fill="#374151" text-anchor="end">hasField</text>
-  <rect x="208" y="1080.0" width="513" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
-  <text x="729" y="1096.0" font-size="12" fill="#111827" text-anchor="start">12,831 ops/sec</text>
+  <text x="734" y="1062.0" font-size="12" fill="#111827" text-anchor="start">10,096 ops/sec</text>
+  <text x="198" y="1096.0" font-size="12" fill="#374151" text-anchor="end">deleteField</text>
+  <rect x="208" y="1080.0" width="512" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
+  <text x="728" y="1096.0" font-size="12" fill="#111827" text-anchor="start">9,977 ops/sec</text>
   <text x="198" y="1130.0" font-size="12" fill="#374151" text-anchor="end">getField</text>
-  <rect x="208" y="1114.0" width="510" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
-  <text x="726" y="1130.0" font-size="12" fill="#111827" text-anchor="start">12,741 ops/sec</text>
-  <text x="198" y="1164.0" font-size="12" fill="#374151" text-anchor="end">setFields</text>
-  <rect x="208" y="1148.0" width="506" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
-  <text x="722" y="1164.0" font-size="12" fill="#111827" text-anchor="start">12,651 ops/sec</text>
-  <text x="198" y="1198.0" font-size="12" fill="#374151" text-anchor="end">getFields</text>
-  <rect x="208" y="1182.0" width="506" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
-  <text x="722" y="1198.0" font-size="12" fill="#111827" text-anchor="start">12,635 ops/sec</text>
-  <text x="198" y="1232.0" font-size="12" fill="#374151" text-anchor="end">setField</text>
-  <rect x="208" y="1216.0" width="504" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
-  <text x="720" y="1232.0" font-size="12" fill="#111827" text-anchor="start">12,600 ops/sec</text>
-  <text x="198" y="1266.0" font-size="12" fill="#374151" text-anchor="end">deleteFields</text>
-  <rect x="208" y="1250.0" width="503" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
-  <text x="719" y="1266.0" font-size="12" fill="#111827" text-anchor="start">12,583 ops/sec</text>
+  <rect x="208" y="1114.0" width="509" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
+  <text x="725" y="1130.0" font-size="12" fill="#111827" text-anchor="start">9,921 ops/sec</text>
+  <text x="198" y="1164.0" font-size="12" fill="#374151" text-anchor="end">setField</text>
+  <rect x="208" y="1148.0" width="503" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
+  <text x="719" y="1164.0" font-size="12" fill="#111827" text-anchor="start">9,804 ops/sec</text>
+  <text x="198" y="1198.0" font-size="12" fill="#374151" text-anchor="end">setFields</text>
+  <rect x="208" y="1182.0" width="501" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
+  <text x="717" y="1198.0" font-size="12" fill="#111827" text-anchor="start">9,774 ops/sec</text>
+  <text x="198" y="1232.0" font-size="12" fill="#374151" text-anchor="end">deleteFields</text>
+  <rect x="208" y="1216.0" width="501" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
+  <text x="717" y="1232.0" font-size="12" fill="#111827" text-anchor="start">9,765 ops/sec</text>
+  <text x="198" y="1266.0" font-size="12" fill="#374151" text-anchor="end">getFields</text>
+  <rect x="208" y="1250.0" width="485" height="24" rx="3" fill="rgb(236, 72, 153)" stroke="rgb(219, 39, 119)" stroke-width="1"/>
+  <text x="701" y="1266.0" font-size="12" fill="#111827" text-anchor="start">9,458 ops/sec</text>
   <text x="24.0" y="1314.0" font-size="16" fill="#111827" font-weight="bold">Hash Tagging</text>
   <text x="198" y="1340.0" font-size="12" fill="#374151" text-anchor="end">getTagged</text>
   <rect x="208" y="1324.0" width="518" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
-  <text x="734" y="1340.0" font-size="12" fill="#111827" text-anchor="start">333,747 ops/sec</text>
+  <text x="734" y="1340.0" font-size="12" fill="#111827" text-anchor="start">277,850 ops/sec</text>
   <text x="198" y="1374.0" font-size="12" fill="#374151" text-anchor="end">clearByTag</text>
-  <rect x="208" y="1358.0" width="404" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
-  <text x="620" y="1374.0" font-size="12" fill="#111827" text-anchor="start">260,076 ops/sec</text>
+  <rect x="208" y="1358.0" width="372" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
+  <text x="588" y="1374.0" font-size="12" fill="#111827" text-anchor="start">199,348 ops/sec</text>
   <text x="198" y="1408.0" font-size="12" fill="#374151" text-anchor="end">setTagged</text>
-  <rect x="208" y="1392.0" width="17" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
-  <text x="233" y="1408.0" font-size="12" fill="#111827" text-anchor="start">11,062 ops/sec</text>
-  <text x="198" y="1442.0" font-size="12" fill="#374151" text-anchor="end">untag</text>
-  <rect x="208" y="1426.0" width="10" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
-  <text x="226" y="1442.0" font-size="12" fill="#111827" text-anchor="start">6,504 ops/sec</text>
-  <text x="198" y="1476.0" font-size="12" fill="#374151" text-anchor="end">tag</text>
-  <rect x="208" y="1460.0" width="10" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
-  <text x="226" y="1476.0" font-size="12" fill="#111827" text-anchor="start">6,412 ops/sec</text>
-  <text x="198" y="1510.0" font-size="12" fill="#374151" text-anchor="end">getTagCardinality</text>
-  <rect x="208" y="1494.0" width="10" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
-  <text x="226" y="1510.0" font-size="12" fill="#111827" text-anchor="start">6,134 ops/sec</text>
+  <rect x="208" y="1392.0" width="15" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
+  <text x="231" y="1408.0" font-size="12" fill="#111827" text-anchor="start">8,176 ops/sec</text>
+  <text x="198" y="1442.0" font-size="12" fill="#374151" text-anchor="end">getTagCardinality</text>
+  <rect x="208" y="1426.0" width="14" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
+  <text x="230" y="1442.0" font-size="12" fill="#111827" text-anchor="start">7,578 ops/sec</text>
+  <text x="198" y="1476.0" font-size="12" fill="#374151" text-anchor="end">untag</text>
+  <rect x="208" y="1460.0" width="9" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
+  <text x="225" y="1476.0" font-size="12" fill="#111827" text-anchor="start">5,079 ops/sec</text>
+  <text x="198" y="1510.0" font-size="12" fill="#374151" text-anchor="end">tag</text>
+  <rect x="208" y="1494.0" width="9" height="24" rx="3" fill="rgb(20, 184, 166)" stroke="rgb(13, 148, 136)" stroke-width="1"/>
+  <text x="225" y="1510.0" font-size="12" fill="#111827" text-anchor="start">4,906 ops/sec</text>
   <text x="24.0" y="1558.0" font-size="16" fill="#111827" font-weight="bold">Hash Counters</text>
   <text x="198" y="1584.0" font-size="12" fill="#374151" text-anchor="end">decrementField</text>
   <rect x="208" y="1568.0" width="518" height="24" rx="3" fill="rgb(244, 63, 94)" stroke="rgb(225, 29, 72)" stroke-width="1"/>
-  <text x="734" y="1584.0" font-size="12" fill="#111827" text-anchor="start">12,743 ops/sec</text>
+  <text x="734" y="1584.0" font-size="12" fill="#111827" text-anchor="start">9,574 ops/sec</text>
   <text x="198" y="1618.0" font-size="12" fill="#374151" text-anchor="end">incrementField</text>
-  <rect x="208" y="1602.0" width="513" height="24" rx="3" fill="rgb(244, 63, 94)" stroke="rgb(225, 29, 72)" stroke-width="1"/>
-  <text x="729" y="1618.0" font-size="12" fill="#111827" text-anchor="start">12,618 ops/sec</text>
+  <rect x="208" y="1602.0" width="518" height="24" rx="3" fill="rgb(244, 63, 94)" stroke="rgb(225, 29, 72)" stroke-width="1"/>
+  <text x="734" y="1618.0" font-size="12" fill="#111827" text-anchor="start">9,569 ops/sec</text>
 </svg>
